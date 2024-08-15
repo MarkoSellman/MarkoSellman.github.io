@@ -1,13 +1,77 @@
 <!DOCTYPE html>
+<head>
+<style>
+body {
+    font-family: -apple-system, system-ui, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+}
+a.button-4 {
+  appearance: none;
+  background-color: #FAFBFC;
+  border: 1px solid rgba(27, 31, 35, 0.15);
+  border-radius: 6px;
+  box-shadow: rgba(27, 31, 35, 0.04) 0 1px 0, rgba(255, 255, 255, 0.25) 0 1px 0 inset;
+  box-sizing: border-box;
+  color: #24292E;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  list-style: none;
+  padding: 16px 24px;
+  margin: 8px;
+  position: relative;
+  transition: background-color 0.2s cubic-bezier(0.3, 0, 0.5, 1);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  vertical-align: middle;
+  white-space: nowrap;
+  word-wrap: break-word;
+  text-decoration: none;
+}
+
+a.button-4:hover {
+  background-color: #F3F4F6;
+  text-decoration: none;
+  transition-duration: 0.1s;
+}
+
+a.button-4:disabled {
+  background-color: #FAFBFC;
+  border-color: rgba(27, 31, 35, 0.15);
+  color: #959DA5;
+  cursor: default;
+}
+
+a.button-4:active {
+  background-color: #EDEFF2;
+  box-shadow: rgba(225, 228, 232, 0.2) 0 1px 0 inset;
+  transition: none 0s;
+}
+
+a.button-4:focus {
+  outline: 1px transparent;
+}
+
+a.button-4:before {
+  display: none;
+}
+
+a.button-4:-webkit-details-marker {
+  display: none;
+}
+</style>
+</head>
+
 <html>
 <body>
-<h1>Hello World</h1>
-<p>I'm hosted with GitHub Pages.</p>
-<ul>
-    <li><a href="/WebXRGodot42">WebXR Demo made with Godot 4.2.2</a></li>
-    <li><a href="/WebXRGodot43">WebXR Demo made with Godot 4.3.0 Beta</a></li>
-    <li><a href="/WebXRUnityCarDemo">WebXR Unity Car Demo</a></li>
-    <li><a href="/WebXRXRITExamples">WebXR Unity XR Interaction Toolkit Examples</a></li>
-</ul>
+<h1>Welcome</h1>
+<p>You can find various XR demos on this page.</p>
+<a class="button-4" href="/WebXRGodot42">WebXR Demo made with Godot 4.2.2</a>
+<a class="button-4" href="/WebXRGodot43">WebXR Demo made with Godot 4.3.0 Beta</a>
+<a class="button-4" href="/WebXRUnityCarDemo">WebXR Unity Car Demo</a>
+<a class="button-4" href="/WebXRXRITExamples">WebXR Unity XR Interaction Toolkit Examples</a>
+<a class="button-4" href="/WebXR-XRIT-DemoScene">WebXR Unity XR Interaction Toolkit Demoscene</a>
 </body>
 </html>
