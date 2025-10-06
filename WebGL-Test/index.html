@@ -37,6 +37,7 @@
         startView.style.display = "none";
         unityContainer.style.display = "block";
 
+        /*
         const buildConfig = {
         arguments: [],
         dataUrl: "Build/WebGL-Test.data.br",
@@ -48,8 +49,9 @@
         productVersion: "0.1.0",
         // matchWebGLToCanvasSize: false, // Uncomment this to separately control WebGL canvas render size and DOM element size.
         // devicePixelRatio: 1, // Uncomment this to override low DPI rendering on high DPI displays.
-        };
+        };*/
 
+        /*
         createUnityInstance(canvas, buildConfig, (progress) => {
           console.log(`Ladataan... ${Math.round(progress * 100)}%`);
         }).then((instance) => {
@@ -57,7 +59,19 @@
           console.log("Peli ladattu onnistuneesti!");
         }).catch((message) => {
           alert(message);
-        });
+        });*/
+        createUnityInstance(document.querySelector("#unity-canvas"), {
+        arguments: [],
+        dataUrl: "Build/WebGL-Test.data.br",
+        frameworkUrl: "Build/WebGL-Test.framework.js.br",
+        codeUrl: "Build/WebGL-Test.wasm.br",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "DefaultCompany",
+        productName: "WebGL Test",
+        productVersion: "0.1.0",
+        // matchWebGLToCanvasSize: false, // Uncomment this to separately control WebGL canvas render size and DOM element size.
+        // devicePixelRatio: 1, // Uncomment this to override low DPI rendering on high DPI displays.
+        }
       });
     </script>
   </body>
