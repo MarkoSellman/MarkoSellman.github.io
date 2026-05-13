@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Viewport configuration crucial for mobile and WebXR -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Gaussian Splat Viewer (WebGL/XR)</title>
+    
+    <!-- Tailwind CSS for rapid UI styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- NippleJS for Mobile Virtual Joysticks -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+
+    <!-- Import Map for ES Modules (Simulating Vite/Bundler behavior in browser) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
+                "@mkkellogg/gaussian-splats-3d": "https://unpkg.com/@mkkellogg/gaussian-splats-3d@0.4.2/build/gaussian-splats-3d.module.js"
+            }
+        }
+    </script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* UI Overlay Z-Index Hierarchy */
+        #ui-layer { position: absolute; z-index: 10; width: 100%; height: 100%; pointer-events: none; }
+        .pointer-events-auto { pointer-events: auto; }
+        
+        /* Mobile Joystick Zones */
+        #joystick-left { position: absolute; bottom: 50px; left: 50px; width: 150px; height: 150px; z-index: 20; display: none; }
+        #joystick-right { position: absolute; bottom: 50px; right: 50px; width: 150px; height: 150px; z-index: 20; display: none; }
+        
+        /* Loading Spinner */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Layer -->
+    <div id="ui-layer" class="flex flex-col items-center justify-center">
+        <div id="menu" class="bg-black/80 p-8 rounded-2xl text-white text-center pointer-events-auto backdrop-blur-sm border border-gray-700">
+            <h1 class="text-3xl font-bold mb-4">Gaussian Splatting Viewer</h1>
+            <p class="mb-6 text-gray-300 max-w-md">
+                Experience high-performance 3D Gaussian Splats.<br>
+                <span id="control-instructions" class="text-sm text-blue-400 mt-2 block">
+                    PC: WASD to move, Shift to sprint, Click to look around.
+                </span>
+            </p>
+            
+            <div id="loading-indicator" class="flex flex-col items-center hidden mb-6">
+                <div class="loader mb-3"></div>
+                <span class="text-sm text-gray-400">Loading Splat Data & Initializing Workers...</span>
+            </div>
+
+            <button id="start-btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-full transition-all transform hover:scale-105">
+                Enter Scene
+            </button>
+        </div>
+    </div>
+
+    <!-- Mobile Virtual Joysticks -->
+    <div id="joystick-left" class="pointer-events-auto"></div>
+    <div id="joystick-right" class="pointer-events-auto"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { ARButton } from 'three/addons/webxr/ARButton.js';
+        import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+
+        class SplatViewerApp {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.clock = new THREE.Clock();
+                
+                // Viewer specific
+                this.splatViewer = null;
+                
+                // Controls state
+                this.controls = null;
+                this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                
+                // Movement State (PC & Mobile)
+                this.moveState = { forward: 0, right: 0, sprint: false };
+                this.lookState = { yaw: 0, pitch: 0 };
+                this.movementSpeed = 5.0; // Base speed
+                
+                // WebXR state
+                this.isXR = false;
+
+                // Splat URL (Using a common, small test dataset for performance)
+                this.splatUrl = 'https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/bonsai/bonsai-7k.splat';
+            }
+
+            async init() {
+                this.setupScene();
+                this.setupRenderer();
+                
+                if (this.isTouchDevice) {
+                    document.getElementById('control-instructions').innerText = "Mobile: Use Left Joystick to move, Right Joystick to look.";
+                }
+
+                this.bindUI();
+            }
+
+            setupScene() {
+                this.scene = new THREE.Scene();
+                // We keep background null or transparent to support AR Video passthrough
+                
+                this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
+                this.camera.position.set(0, 1, 3);
+            }
+
+            setupRenderer() {
+                const container = document.getElementById('canvas-container');
+                
+                // Alpha: true is crucial for AR WebXR capabilities (allows real world to show behind splats)
+                this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                
+                // OPTIMOINTI 1: Rajoitetaan pikselitiheyttä mobiililaitteilla (vähentää "fill rate" -ongelmaa)
+                const maxPixelRatio = this.isTouchDevice ? 1.0 : Math.min(window.devicePixelRatio, 2);
+                this.renderer.setPixelRatio(maxPixelRatio);
+                
+                this.renderer.xr.enabled = true; // Enable WebXR rendering pipeline
+                
+                container.appendChild(this.renderer.domElement);
+
+                // Handle Resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+
+                // Add XR Buttons to DOM
+                document.body.appendChild(VRButton.createButton(this.renderer));
+                document.body.appendChild(ARButton.createButton(this.renderer));
+                
+                // Track XR Sessions
+                this.renderer.xr.addEventListener('sessionstart', () => { this.isXR = true; });
+                this.renderer.xr.addEventListener('sessionend', () => { this.isXR = false; });
+            }
+
+            bindUI() {
+                const startBtn = document.getElementById('start-btn');
+                const loadingIndicator = document.getElementById('loading-indicator');
+                
+                startBtn.addEventListener('click', async () => {
+                    startBtn.classList.add('hidden');
+                    loadingIndicator.classList.remove('hidden');
+                    
+                    // Start render loop BEFORE loading data.
+                    // This ensures that DropInViewer's onBeforeRender hook can fire
+                    // and correctly populate internal camera references.
+                    this.startRenderLoop();
+
+                    const success = await this.loadSplatData();
+                    
+                    if (success) {
+                        document.getElementById('ui-layer').style.display = 'none';
+                        
+                        if (this.isTouchDevice) {
+                            this.setupMobileControls();
+                        } else {
+                            this.setupPCControls();
+                            this.controls.lock(); // Request pointer lock on start
+                        }
+                    }
+                });
+            }
+
+            async loadSplatData() {
+                // DropInViewer seamlessly integrates Gaussian Splats as a standard THREE.Object3D.
+                // It automatically spins up Web Workers for depth sorting based on the active camera.
+                this.splatViewer = new GaussianSplats3D.DropInViewer({
+                    dynamicScene: false, // Set to false unless splats are actually moving
+                    sharedMemoryForWorkers: false, // MUST BE FALSE unless server has strict Cross-Origin headers!
+                    camera: this.camera, // Explicitly pass camera to prevent undefined errors during initial sort
+                    renderer: this.renderer, // Explicitly pass renderer
+                    
+                    // OPTIMOINTI 2 & 3: Rajoitetaan värien monimutkaisuutta (SH) ja säästetään GPU-muistiväylää (FP16)
+                    sphericalHarmonicsDegree: this.isTouchDevice ? 0 : 1, // 0 on paljon kevyempi mobiilille
+                    halfPrecisionCovariancesOnGPU: true
+                });
+
+                // Add to scene early so it gets picked up by the rendering loop
+                this.scene.add(this.splatViewer);
+
+                try {
+                    // OPTIMOINTI 4: Leikataan enemmän näkymättömiä reunoja mobiililla
+                    const alphaCrop = this.isTouchDevice ? 0.2 : 0.1;
+
+                    await this.splatViewer.addSplatScene(this.splatUrl, {
+                        splatAlphaCrop: alphaCrop, // Discard threshold for fragment shader optimization
+                        showLoadingUI: false // We use our custom UI
+                    });
+                    
+                    // Center the model roughly
+                    this.splatViewer.position.set(0, 0, 0);
+                    
+                    // Fix orientation: Gaussian Splats usually use OpenCV coordinates (Y-down),
+                    // whereas Three.js uses Y-up. A 180-degree rotation around X corrects the "upside down" issue.
+                    this.splatViewer.rotation.x = Math.PI;
+
+                    return true;
+                    
+                } catch (error) {
+                    console.error("Failed to load Splat data:", error);
+                    const loadingIndicator = document.getElementById('loading-indicator');
+                    loadingIndicator.innerHTML = `<span class="text-red-500 font-bold">Virhe ladattaessa mallia.<br>Tarkista selaimen konsoli (F12).</span>`;
+                    return false;
+                }
+            }
+
+            setupPCControls() {
+                // PointerLock API for FPS style looking
+                this.controls = new PointerLockControls(this.camera, this.renderer.domElement);
+                
+                // Re-lock on click if unlocked
+                this.renderer.domElement.addEventListener('click', () => {
+                    if (!this.controls.isLocked && !this.isXR) {
+                        this.controls.lock();
+                    }
+                });
+
+                // WASD & Shift Input Tracking
+                document.addEventListener('keydown', (e) => {
+                    switch(e.code) {
+                        case 'KeyW': this.moveState.forward = 1; break;
+                        case 'KeyS': this.moveState.forward = -1; break;
+                        case 'KeyA': this.moveState.right = -1; break;
+                        case 'KeyD': this.moveState.right = 1; break;
+                        case 'ShiftLeft': this.moveState.sprint = true; break;
+                    }
+                });
+
+                document.addEventListener('keyup', (e) => {
+                    switch(e.code) {
+                        case 'KeyW':
+                        case 'KeyS': this.moveState.forward = 0; break;
+                        case 'KeyA':
+                        case 'KeyD': this.moveState.right = 0; break;
+                        case 'ShiftLeft': this.moveState.sprint = false; break;
+                    }
+                });
+            }
+
+            setupMobileControls() {
+                const leftZone = document.getElementById('joystick-left');
+                const rightZone = document.getElementById('joystick-right');
+                
+                leftZone.style.display = 'block';
+                rightZone.style.display = 'block';
+
+                // Left Joystick: Movement (WASD equivalent)
+                const managerLeft = nipplejs.create({
+                    zone: leftZone,
+                    mode: 'static',
+                    position: { left: '50%', top: '50%' },
+                    color: 'white'
+                });
+
+                managerLeft.on('move', (evt, data) => {
+                    // Vector mapped to forward/right logic
+                    this.moveState.forward = Math.sin(data.angle.radian);
+                    this.moveState.right = Math.cos(data.angle.radian);
+                });
+                managerLeft.on('end', () => {
+                    this.moveState.forward = 0;
+                    this.moveState.right = 0;
+                });
+
+                // Right Joystick: Camera Look (PointerLock equivalent)
+                const managerRight = nipplejs.create({
+                    zone: rightZone,
+                    mode: 'static',
+                    position: { right: '50%', top: '50%' },
+                    color: 'white'
+                });
+
+                managerRight.on('move', (evt, data) => {
+                    // Raw vector delta for camera rotation mapping
+                    this.lookState.yaw = data.vector.x;
+                    this.lookState.pitch = data.vector.y;
+                });
+                managerRight.on('end', () => {
+                    this.lookState.yaw = 0;
+                    this.lookState.pitch = 0;
+                });
+            }
+
+            updateCamera(delta) {
+                // If WebXR is active, the XR device handles camera transform overrides natively.
+                if (this.isXR) return;
+
+                // Handle Mobile Look Rotation via Euler angles
+                if (this.isTouchDevice && (this.lookState.yaw !== 0 || this.lookState.pitch !== 0)) {
+                    const lookSensitivity = 1.5;
+                    const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+                    euler.setFromQuaternion(this.camera.quaternion);
+                    
+                    euler.y -= this.lookState.yaw * delta * lookSensitivity;
+                    euler.x += this.lookState.pitch * delta * lookSensitivity;
+                    
+                    // Clamp pitch to avoid flipping over
+                    euler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x));
+                    this.camera.quaternion.setFromEuler(euler);
+                }
+
+                // Handle Movement (PC and Mobile)
+                if (this.moveState.forward !== 0 || this.moveState.right !== 0) {
+                    const speedMultiplier = this.moveState.sprint ? 2.5 : 1.0;
+                    const activeSpeed = this.movementSpeed * speedMultiplier * delta;
+
+                    // Calculate forward and right vectors relative to current camera yaw
+                    const dirForward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+                    dirForward.y = 0; // Constrain movement to XZ plane
+                    dirForward.normalize();
+
+                    const dirRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+                    dirRight.y = 0;
+                    dirRight.normalize();
+
+                    const moveVec = new THREE.Vector3();
+                    moveVec.addScaledVector(dirForward, this.moveState.forward);
+                    moveVec.addScaledVector(dirRight, this.moveState.right);
+                    
+                    if (moveVec.lengthSq() > 0) {
+                        moveVec.normalize().multiplyScalar(activeSpeed);
+                        this.camera.position.add(moveVec);
+                    }
+                }
+            }
+
+            startRenderLoop() {
+                // Using setAnimationLoop instead of requestAnimationFrame is mandatory for WebXR
+                this.renderer.setAnimationLoop(() => {
+                    const delta = this.clock.getDelta();
+                    
+                    this.updateCamera(delta);
+
+                    // Render scene
+                    this.renderer.render(this.scene, this.camera);
+                });
+            }
+        }
+
+        // Bootstrapping the application
+        window.addEventListener('DOMContentLoaded', () => {
+            const app = new SplatViewerApp();
+            app.init();
+        });
+
+    </script>
+</body>
+</html>
