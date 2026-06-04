@@ -11,9 +11,6 @@
     <!-- NippleJS for Mobile Virtual Joystick -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
-    <!-- Polyfill for Import Maps (CRITICAL FOR iOS COMPATIBILITY < 16.4) -->
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-
     <!-- Import Map for Three.js and GaussianSplats3D -->
     <script type="importmap">
         {
@@ -114,8 +111,8 @@
                 this.scene = new THREE.Scene();
                 this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 500);
                 
-                // Removed powerPreference: "high-performance" to increase iOS WebGL stability
-                this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
+                // Use alpha: true, iOS sometimes prefers an alpha channel in the framebuffer
+                this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
                 this.clock = new THREE.Clock();
                 
                 // Gaussian Splatting Viewer
@@ -157,7 +154,10 @@
             setupRenderer() {
                 const container = document.getElementById('canvas-container');
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
-                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                
+                // CRITICAL FOR iOS: Limit pixel ratio to 1 on mobile to prevent WebGL context crash
+                const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                this.renderer.setPixelRatio(isMobile ? 1.0 : Math.min(window.devicePixelRatio, 2));
                 
                 // WebXR Support Flag (Architecture prep)
                 this.renderer.xr.enabled = true;
@@ -453,11 +453,16 @@
                     this.splatViewer = null;
                 }
 
+                const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
                 this.splatViewer = new GaussianSplats3D.DropInViewer({
                     camera: this.camera,
                     renderer: this.renderer,
                     sharedMemoryForWorkers: false,
-                    dynamicScene: false 
+                    dynamicScene: false,
+                    // Re-added iOS/Mobile optimizations from the working version
+                    sphericalHarmonicsDegree: isMobile ? 0 : 1,
+                    halfPrecisionCovariancesOnGPU: true
                 });
 
                 this.scene.add(this.splatViewer);
