@@ -51,13 +51,15 @@
     <!-- 3D Canvas -->
     <div id="canvas-container"></div>
 
-    <!-- Floating Toggle Menu Button -->
-    <button id="btn-toggle-menu" class="absolute top-2 right-2 z-[60] bg-gray-800/80 hover:bg-gray-700 text-white px-3 py-1.5 rounded-md text-xs font-bold border border-gray-600 backdrop-blur-md transition-colors shadow-lg">
-        Hide Menu
+    <!-- Floating Toggle Menu Button (Now using SVG arrow) -->
+    <button id="btn-toggle-menu" class="absolute top-2 right-2 z-[60] bg-gray-800/80 hover:bg-gray-700 text-white p-1.5 rounded-md border border-gray-600 backdrop-blur-md transition-colors shadow-lg" title="Toggle Menu">
+        <svg id="menu-arrow-icon" class="w-5 h-5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+        </svg>
     </button>
 
     <!-- Top Navigation Bar (Compact) -->
-    <nav id="ui-nav" class="bg-black/70 backdrop-blur-md border-b border-gray-800 p-2 pr-24 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-xl">
+    <nav id="ui-nav" class="bg-black/70 backdrop-blur-md border-b border-gray-800 p-2 pr-12 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-xl">
         <div class="flex items-center gap-2 flex-wrap justify-center">
             
             <!-- Control Mode Switcher -->
@@ -102,10 +104,11 @@
     </div>
 
     <!-- Debug Console Overlay -->
-    <button id="btn-toggle-debug" class="absolute top-[60px] right-2 z-[60] bg-red-900/80 hover:bg-red-800 text-white px-3 py-1.5 rounded-md text-xs font-bold border border-red-600 backdrop-blur-md transition-colors shadow-lg">
+    <button id="btn-toggle-debug" class="absolute bottom-2 right-2 z-[110] bg-red-900/80 hover:bg-red-800 text-white px-3 py-1 rounded-md text-xs font-bold border border-red-600 backdrop-blur-md transition-all duration-300 shadow-lg">
         Debug
     </button>
-    <div id="debug-console" class="absolute bottom-0 left-0 w-full h-1/3 bg-black/95 text-green-400 text-[10px] sm:text-xs font-mono p-2 overflow-y-auto z-[100] hidden border-t border-green-700 pointer-events-auto break-words shadow-2xl"></div>
+    <!-- Made the height deterministic (33vh) so we can smoothly transition the button above it -->
+    <div id="debug-console" class="absolute bottom-0 left-0 w-full h-[33vh] bg-black/95 text-green-400 text-[10px] sm:text-xs font-mono p-2 overflow-y-auto z-[100] hidden border-t border-green-700 pointer-events-auto break-words shadow-2xl"></div>
 
     <!-- Virtual Joystick Container -->
     <div id="joystick-zone" class="pointer-events-auto"></div>
@@ -116,7 +119,16 @@
         const btnToggleDebug = document.getElementById('btn-toggle-debug');
         
         btnToggleDebug.addEventListener('click', () => {
-            debugConsole.classList.toggle('hidden');
+            const isHidden = debugConsole.classList.contains('hidden');
+            if (isHidden) {
+                debugConsole.classList.remove('hidden');
+                // Move button up so it rests on top of the console
+                btnToggleDebug.style.bottom = 'calc(33vh + 8px)';
+            } else {
+                debugConsole.classList.add('hidden');
+                // Move button back to the bottom
+                btnToggleDebug.style.bottom = '8px';
+            }
         });
 
         function logDebug(msg, colorClass = 'text-green-400') {
@@ -412,6 +424,7 @@
             bindUI() {
                 // UI Show/Hide Toggle Button
                 const btnToggleMenu = document.getElementById('btn-toggle-menu');
+                const arrowIcon = document.getElementById('menu-arrow-icon');
                 const uiNav = document.getElementById('ui-nav');
                 let isMenuVisible = true;
 
@@ -419,14 +432,14 @@
                     isMenuVisible = !isMenuVisible;
                     if (isMenuVisible) {
                         uiNav.style.transform = 'translateY(0)';
-                        btnToggleMenu.innerText = 'Hide Menu';
                         btnToggleMenu.classList.remove('bg-blue-600');
                         btnToggleMenu.classList.add('bg-gray-800/80');
+                        arrowIcon.classList.remove('rotate-180');
                     } else {
                         uiNav.style.transform = 'translateY(-100%)';
-                        btnToggleMenu.innerText = 'Show Menu';
                         btnToggleMenu.classList.add('bg-blue-600');
                         btnToggleMenu.classList.remove('bg-gray-800/80');
+                        arrowIcon.classList.add('rotate-180');
                     }
                 });
 
