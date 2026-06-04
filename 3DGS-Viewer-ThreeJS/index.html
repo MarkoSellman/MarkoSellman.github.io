@@ -11,6 +11,9 @@
     <!-- NippleJS for Mobile Virtual Joysticks -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
+    <!-- Polyfill for Import Maps (CRITICAL FOR iOS COMPATIBILITY) -->
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
     <!-- Import Map for ES Modules (Simulating Vite/Bundler behavior in browser) -->
     <!-- Note: Using the exact same import map from the working version -->
     <script type="importmap">
@@ -98,8 +101,54 @@
         </div>
     </div>
 
+    <!-- Debug Console Overlay -->
+    <button id="btn-toggle-debug" class="absolute top-[60px] right-2 z-[60] bg-red-900/80 hover:bg-red-800 text-white px-3 py-1.5 rounded-md text-xs font-bold border border-red-600 backdrop-blur-md transition-colors shadow-lg">
+        Debug
+    </button>
+    <div id="debug-console" class="absolute bottom-0 left-0 w-full h-1/3 bg-black/95 text-green-400 text-[10px] sm:text-xs font-mono p-2 overflow-y-auto z-[100] hidden border-t border-green-700 pointer-events-auto break-words shadow-2xl"></div>
+
     <!-- Virtual Joystick Container -->
     <div id="joystick-zone" class="pointer-events-auto"></div>
+
+    <!-- Error Catcher Script (Must run before the module) -->
+    <script>
+        const debugConsole = document.getElementById('debug-console');
+        const btnToggleDebug = document.getElementById('btn-toggle-debug');
+        
+        btnToggleDebug.addEventListener('click', () => {
+            debugConsole.classList.toggle('hidden');
+        });
+
+        function logDebug(msg, colorClass = 'text-green-400') {
+            const div = document.createElement('div');
+            div.className = `border-b border-gray-800 pb-1 mb-1 ${colorClass}`;
+            try {
+                div.textContent = typeof msg === 'object' ? JSON.stringify(msg, Object.getOwnPropertyNames(msg)) : String(msg);
+            } catch (e) {
+                div.textContent = String(msg);
+            }
+            debugConsole.appendChild(div);
+            debugConsole.scrollTop = debugConsole.scrollHeight;
+        }
+
+        const origLog = console.log;
+        const origWarn = console.warn;
+        const origError = console.error;
+
+        console.log = (...args) => { origLog(...args); logDebug(args.join(' ')); };
+        console.warn = (...args) => { origWarn(...args); logDebug(args.join(' '), 'text-yellow-400'); };
+        console.error = (...args) => { origError(...args); logDebug(args.join(' '), 'text-red-500 font-bold'); };
+
+        window.addEventListener('error', (event) => {
+            logDebug(`ERROR: ${event.message} at ${event.filename}:${event.lineno}`, 'text-red-500 font-bold bg-red-900/30');
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            logDebug(`PROMISE REJECTION: ${event.reason}`, 'text-red-500 font-bold bg-red-900/30');
+        });
+
+        console.log("Logger initialized. Waiting for Three.js...");
+    </script>
 
     <script type="module">
         import * as THREE from 'three';
