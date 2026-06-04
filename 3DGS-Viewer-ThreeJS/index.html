@@ -35,8 +35,8 @@
         #ui-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 40; }
         .pointer-events-auto { pointer-events: auto; }
         
-        /* Mobile Joystick Area */
-        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 60; display: none; }
+        /* Mobile Joystick Area - CHANGED from display: none to visibility: hidden */
+        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 60; visibility: hidden; pointer-events: none; }
         
         /* Loading Spinner */
         .spinner { border: 3px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; }
@@ -110,7 +110,7 @@
     <!-- Virtual Joystick Container -->
     <div id="joystick-zone" class="pointer-events-auto"></div>
 
-    <!-- Error Catcher Script (Must run before the module) -->
+    <!-- Error Catcher Script -->
     <script>
         const debugConsole = document.getElementById('debug-console');
         const btnToggleDebug = document.getElementById('btn-toggle-debug');
@@ -381,7 +381,11 @@
                 if (mode === 'pc') {
                     btnPc.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
                     btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors";
-                    joystickZone.style.display = 'none';
+                    
+                    // Hide via visibility so dimensions aren't lost
+                    joystickZone.style.visibility = 'hidden';
+                    joystickZone.style.pointerEvents = 'none';
+                    
                     this.showStatus("PC Mode: WASD to move, Click to look.", "text-blue-400", 3000);
                 } else {
                     btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
@@ -391,7 +395,10 @@
                     if (this.controls && typeof document.exitPointerLock === 'function') {
                         this.controls.unlock();
                     }
-                    joystickZone.style.display = 'block';
+                    
+                    // Show via visibility
+                    joystickZone.style.visibility = 'visible';
+                    joystickZone.style.pointerEvents = 'auto';
                     
                     // Sync look state
                     const euler = new THREE.Euler(0, 0, 0, 'YXZ').setFromQuaternion(this.camera.quaternion);
