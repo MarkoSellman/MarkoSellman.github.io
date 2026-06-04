@@ -253,7 +253,12 @@
                 
                 this.renderer.domElement.addEventListener('click', () => {
                     if (this.controlMode === 'pc' && !this.controls.isLocked && !this.isXR) {
-                        this.controls.lock();
+                        // CRITICAL iOS FIX: Only attempt to lock pointer if the API is supported
+                        if (typeof document.body.requestPointerLock === 'function' || typeof this.renderer.domElement.requestPointerLock === 'function') {
+                            this.controls.lock();
+                        } else {
+                            this.showStatus("Pointer Lock not supported on this device.", "text-yellow-400", 3000);
+                        }
                     }
                 });
 
@@ -382,7 +387,10 @@
                     btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
                     btnPc.className = "px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors";
                     
-                    this.controls.unlock();
+                    // CRITICAL iOS FIX: Only call unlock if the exitPointerLock function exists
+                    if (this.controls && typeof document.exitPointerLock === 'function') {
+                        this.controls.unlock();
+                    }
                     joystickZone.style.display = 'block';
                     
                     // Sync look state
