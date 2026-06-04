@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Babylon.js 3DGS Viewer</title>
+    
+    <!-- Tailwind CSS for rapid UI styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- NippleJS for Mobile Virtual Joysticks -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+
+    <!-- Babylon.js Core and Loaders (which include Gaussian Splatting support) -->
+    <!-- Using CDN scripts instead of ES modules maximizes iOS/Mobile compatibility -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; touch-action: none; }
+        
+        /* Render Canvas (Babylon requires a canvas element, not a div) */
+        #renderCanvas { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; outline: none; }
+        
+        /* UI Layers */
+        #ui-nav { position: absolute; top: 0; width: 100%; z-index: 50; transition: transform 0.3s ease-in-out; }
+        #ui-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 40; }
+        .pointer-events-auto { pointer-events: auto; }
+        
+        /* Mobile Joystick Area */
+        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 60; visibility: hidden; pointer-events: none; }
+        
+        /* Loading Spinner */
+        .spinner { border: 3px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Custom Scrollbar for file inputs */
+        ::-webkit-file-upload-button { background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    </style>
+</head>
+<body class="text-white font-sans">
+
+    <!-- Babylon 3D Canvas -->
+    <canvas id="renderCanvas" touch-action="none"></canvas>
+
+    <!-- Floating Toggle Menu Button -->
+    <button id="btn-toggle-menu" class="absolute top-2 right-2 z-[60] bg-gray-800/80 hover:bg-gray-700 text-white p-1.5 rounded-md border border-gray-600 backdrop-blur-md transition-colors shadow-lg" title="Toggle Menu">
+        <svg id="menu-arrow-icon" class="w-5 h-5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+        </svg>
+    </button>
+
+    <!-- Top Navigation Bar (Compact) -->
+    <nav id="ui-nav" class="bg-black/70 backdrop-blur-md border-b border-gray-800 p-2 pr-12 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-xl">
+        <div class="flex items-center gap-2 flex-wrap justify-center">
+            
+            <!-- Control Mode Switcher -->
+            <div class="flex bg-gray-800 rounded-lg p-1 shadow-inner">
+                <button id="btn-mode-pc" class="px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white">PC</button>
+                <button id="btn-mode-mobile" class="px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors">Mobile</button>
+            </div>
+
+            <!-- WebXR Button -->
+            <button id="btn-vr" disabled class="px-3 py-1 rounded-md text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-800 cursor-not-allowed opacity-70">
+                VR
+            </button>
+
+            <!-- Grid Toggle Button -->
+            <button id="btn-toggle-grid" class="px-3 py-1 rounded-md text-xs font-medium bg-gray-700 text-white hover:bg-gray-600 transition-colors border border-gray-600">
+                Grid: ON
+            </button>
+            
+            <!-- Load Sample Button -->
+            <button id="btn-load-sample" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-md text-xs font-medium transition-colors border border-indigo-500">
+                Sample
+            </button>
+        </div>
+
+        <!-- Data Loading Controls -->
+        <div class="flex items-center gap-2 flex-wrap justify-center w-full sm:w-auto mt-2 sm:mt-0">
+            <input type="text" id="url-input" placeholder="Paste .splat URL..." class="bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-xs w-28 sm:w-40 focus:outline-none focus:border-blue-500">
+            <span class="text-[10px] text-gray-500">OR</span>
+            <input type="file" id="file-input" accept=".splat,.ply" class="text-xs text-gray-400 w-36 sm:w-40">
+            <button id="btn-load" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1 rounded-md text-xs font-bold transition-colors flex items-center gap-1 shadow-md">
+                Load
+                <div id="loading-spinner" class="spinner hidden"></div>
+            </button>
+        </div>
+    </nav>
+
+    <!-- UI Overlay for Instructions/Errors -->
+    <div id="ui-overlay" class="flex items-center justify-center">
+        <div id="status-message" class="bg-black/80 px-4 py-2 rounded-lg border border-gray-700 backdrop-blur-sm transform transition-all opacity-0 scale-95 shadow-xl">
+            <p id="status-text" class="text-center text-sm"></p>
+        </div>
+    </div>
+
+    <!-- Debug Console Overlay -->
+    <button id="btn-toggle-debug" class="absolute bottom-2 right-2 z-[110] bg-red-900/80 hover:bg-red-800 text-white px-3 py-1 rounded-md text-xs font-bold border border-red-600 backdrop-blur-md transition-all duration-300 shadow-lg">
+        Debug
+    </button>
+    <div id="debug-console" class="absolute bottom-0 left-0 w-full h-[33vh] bg-black/95 text-green-400 text-[10px] sm:text-xs font-mono p-2 overflow-y-auto z-[100] hidden border-t border-green-700 pointer-events-auto break-words shadow-2xl"></div>
+
+    <!-- Virtual Joystick Container -->
+    <div id="joystick-zone" class="pointer-events-auto"></div>
+
+    <!-- Error Catcher Script (Same as before) -->
+    <script>
+        const debugConsole = document.getElementById('debug-console');
+        const btnToggleDebug = document.getElementById('btn-toggle-debug');
+        
+        btnToggleDebug.addEventListener('click', () => {
+            const isHidden = debugConsole.classList.contains('hidden');
+            if (isHidden) {
+                debugConsole.classList.remove('hidden');
+                btnToggleDebug.style.bottom = 'calc(33vh + 8px)';
+            } else {
+                debugConsole.classList.add('hidden');
+                btnToggleDebug.style.bottom = '8px';
+            }
+        });
+
+        function logDebug(msg, colorClass = 'text-green-400') {
+            const div = document.createElement('div');
+            div.className = `border-b border-gray-800 pb-1 mb-1 ${colorClass}`;
+            try {
+                div.textContent = typeof msg === 'object' ? JSON.stringify(msg, Object.getOwnPropertyNames(msg)) : String(msg);
+            } catch (e) {
+                div.textContent = String(msg);
+            }
+            debugConsole.appendChild(div);
+            debugConsole.scrollTop = debugConsole.scrollHeight;
+        }
+
+        const origLog = console.log;
+        const origWarn = console.warn;
+        const origError = console.error;
+
+        console.log = (...args) => { origLog(...args); logDebug(args.join(' ')); };
+        console.warn = (...args) => { origWarn(...args); logDebug(args.join(' '), 'text-yellow-400'); };
+        console.error = (...args) => { origError(...args); logDebug(args.join(' '), 'text-red-500 font-bold'); };
+
+        window.addEventListener('error', (event) => {
+            logDebug(`ERROR: ${event.message} at ${event.filename}:${event.lineno}`, 'text-red-500 font-bold bg-red-900/30');
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            logDebug(`PROMISE REJECTION: ${event.reason}`, 'text-red-500 font-bold bg-red-900/30');
+        });
+
+        console.log("Logger initialized. Waiting for Babylon.js...");
+    </script>
+
+    <!-- Application Script (Babylon.js Logic) -->
+    <script>
+        class BabylonSplatViewerApp {
+            constructor() {
+                this.canvas = document.getElementById('renderCanvas');
+                this.engine = null;
+                this.scene = null;
+                this.camera = null;
+                
+                // Viewer specific
+                this.splatMesh = null;
+                
+                // Grid & Axes
+                this.gridHelper = null;
+                this.axesHelper = null;
+                this.axesVisible = true;
+                
+                // Controls state
+                this.joystickManager = null;
+                this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                this.controlMode = 'pc'; // Default
+                
+                // Movement State (PC & Mobile)
+                this.moveState = { forward: 0, right: 0, sprint: false };
+                this.lookState = { yaw: 0, pitch: 0 };
+                this.movementSpeed = 5.0; // Base speed
+                
+                // Touch look tracking variables
+                this.isDragging = false;
+                this.previousTouch = { x: 0, y: 0 };
+
+                // WebXR state
+                this.isXR = false;
+            }
+
+            async init() {
+                this.setupEngine();
+                this.setupScene();
+                this.setupControls();
+                this.bindUI();
+                
+                // Auto-detect mode based on touch capability
+                if (this.isTouchDevice) {
+                    this.setControlMode('mobile');
+                }
+
+                // Start Babylon render loop
+                this.startRenderLoop();
+                this.showStatus("System initialized. Load a .splat file or URL.", "text-gray-300", 3000);
+            }
+
+            setupEngine() {
+                // Adapt to device ratio ONLY on PC. On mobile, we force CSS resolution (DPR=1) to save GPU fill-rate.
+                const adaptRatio = !this.isTouchDevice;
+                this.engine = new BABYLON.Engine(this.canvas, true, { preserveDrawingBuffer: false, stencil: false, adaptToDeviceRatio: adaptRatio });
+                
+                window.addEventListener('resize', () => {
+                    this.engine.resize();
+                });
+            }
+
+            setupScene() {
+                this.scene = new BABYLON.Scene(this.engine);
+                // Keep background transparent for AR passthrough support
+                this.scene.clearColor = new BABYLON.Color4(0, 0, 0, 0); 
+                
+                // Using UniversalCamera but we will manipulate its rotation/position manually to guarantee 1:1 parity with the Three.js version
+                this.camera = new BABYLON.UniversalCamera("MainCamera", new BABYLON.Vector3(0, 1.5, -4), this.scene);
+                this.camera.minZ = 0.1;
+                
+                // Add Grid (Ground with wireframe)
+                const gridMat = new BABYLON.StandardMaterial("gridMat", this.scene);
+                gridMat.wireframe = true;
+                gridMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                gridMat.disableLighting = true;
+
+                this.gridHelper = BABYLON.MeshBuilder.CreateGround("grid", {width: 20, height: 20, subdivisions: 20}, this.scene);
+                this.gridHelper.material = gridMat;
+
+                // Add Axes
+                this.axesHelper = new BABYLON.AxesViewer(this.scene, 5);
+            }
+
+            setupControls() {
+                // --- PC Controls (PointerLock mapped manually) ---
+                this.canvas.addEventListener('click', () => {
+                    if (this.controlMode === 'pc' && document.pointerLockElement !== this.canvas && !this.isXR) {
+                        if (typeof this.canvas.requestPointerLock === 'function') {
+                            this.canvas.requestPointerLock();
+                        } else {
+                            this.showStatus("Pointer Lock not supported on this device.", "text-yellow-400", 3000);
+                        }
+                    }
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (this.controlMode === 'pc' && document.pointerLockElement === this.canvas) {
+                        const sensitivity = 0.002;
+                        this.lookState.yaw += e.movementX * sensitivity;
+                        this.lookState.pitch += e.movementY * sensitivity;
+                        
+                        // Clamp pitch
+                        const PI_2 = Math.PI / 2 - 0.01;
+                        this.lookState.pitch = Math.max(-PI_2, Math.min(PI_2, this.lookState.pitch));
+                    }
+                });
+
+                document.addEventListener('keydown', (e) => {
+                    if (this.controlMode !== 'pc') return;
+                    switch(e.code) {
+                        case 'KeyW': this.moveState.forward = 1; break;
+                        case 'KeyS': this.moveState.forward = -1; break;
+                        case 'KeyA': this.moveState.right = -1; break;
+                        case 'KeyD': this.moveState.right = 1; break;
+                        case 'ShiftLeft': this.moveState.sprint = true; break;
+                    }
+                });
+
+                document.addEventListener('keyup', (e) => {
+                    if (this.controlMode !== 'pc') return;
+                    switch(e.code) {
+                        case 'KeyW':
+                        case 'KeyS': this.moveState.forward = 0; break;
+                        case 'KeyA':
+                        case 'KeyD': this.moveState.right = 0; break;
+                        case 'ShiftLeft': this.moveState.sprint = false; break;
+                    }
+                });
+
+                // --- Mobile Controls (Joystick + Touch Drag) ---
+                const joystickZone = document.getElementById('joystick-zone');
+                
+                this.joystickManager = nipplejs.create({
+                    zone: joystickZone,
+                    mode: 'static',
+                    position: { left: '50%', top: '50%' },
+                    color: '#3b82f6',
+                    size: 100
+                });
+
+                this.joystickManager.on('move', (evt, data) => {
+                    if (this.controlMode !== 'mobile') return;
+                    const force = Math.min(data.force, 1.0);
+                    // In Babylon, +Z is forward, +X is right. Mappings match visually.
+                    this.moveState.forward = Math.sin(data.angle.radian) * force;
+                    this.moveState.right = Math.cos(data.angle.radian) * force;
+                });
+                
+                this.joystickManager.on('end', () => {
+                    this.moveState.forward = 0;
+                    this.moveState.right = 0;
+                });
+
+                // Touch Drag for Look
+                this.canvas.addEventListener('touchstart', (e) => {
+                    if (this.controlMode !== 'mobile' || e.touches.length > 1) return;
+                    this.isDragging = true;
+                    this.previousTouch.x = e.touches[0].pageX;
+                    this.previousTouch.y = e.touches[0].pageY;
+                }, { passive: false });
+
+                this.canvas.addEventListener('touchmove', (e) => {
+                    if (this.controlMode !== 'mobile' || !this.isDragging) return;
+                    e.preventDefault(); 
+                    
+                    const touch = e.touches[0];
+                    const deltaX = touch.pageX - this.previousTouch.x;
+                    const deltaY = touch.pageY - this.previousTouch.y;
+                    
+                    const sensitivity = 0.005;
+                    this.lookState.yaw += deltaX * sensitivity;
+                    this.lookState.pitch += deltaY * sensitivity;
+
+                    const PI_2 = Math.PI / 2 - 0.01;
+                    this.lookState.pitch = Math.max(-PI_2, Math.min(PI_2, this.lookState.pitch));
+
+                    this.previousTouch.x = touch.pageX;
+                    this.previousTouch.y = touch.pageY;
+                }, { passive: false });
+
+                this.canvas.addEventListener('touchend', () => {
+                    this.isDragging = false;
+                });
+
+                // Mouse Drag for Mobile Mode fallback on PC
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (this.controlMode !== 'mobile') return;
+                    this.isDragging = true;
+                    this.previousTouch.x = e.pageX;
+                    this.previousTouch.y = e.pageY;
+                });
+
+                window.addEventListener('mousemove', (e) => {
+                    if (this.controlMode !== 'mobile' || !this.isDragging) return;
+                    e.preventDefault(); 
+                    
+                    const deltaX = e.pageX - this.previousTouch.x;
+                    const deltaY = e.pageY - this.previousTouch.y;
+                    
+                    const sensitivity = 0.005;
+                    this.lookState.yaw += deltaX * sensitivity;
+                    this.lookState.pitch += deltaY * sensitivity;
+
+                    const PI_2 = Math.PI / 2 - 0.01;
+                    this.lookState.pitch = Math.max(-PI_2, Math.min(PI_2, this.lookState.pitch));
+
+                    this.previousTouch.x = e.pageX;
+                    this.previousTouch.y = e.pageY;
+                }, { passive: false });
+
+                window.addEventListener('mouseup', () => {
+                    this.isDragging = false;
+                });
+            }
+
+            setControlMode(mode) {
+                this.controlMode = mode;
+                const btnPc = document.getElementById('btn-mode-pc');
+                const btnMobile = document.getElementById('btn-mode-mobile');
+                const joystickZone = document.getElementById('joystick-zone');
+
+                this.moveState.forward = 0;
+                this.moveState.right = 0;
+
+                if (mode === 'pc') {
+                    btnPc.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
+                    btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors";
+                    
+                    joystickZone.style.visibility = 'hidden';
+                    joystickZone.style.pointerEvents = 'none';
+                    
+                    this.showStatus("PC Mode: WASD to move, Click to look.", "text-blue-400", 3000);
+                } else {
+                    btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
+                    btnPc.className = "px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors";
+                    
+                    // Unlock pointer lock on PC mode exit
+                    if (document.pointerLockElement === this.canvas && typeof document.exitPointerLock === 'function') {
+                        document.exitPointerLock();
+                    }
+                    
+                    joystickZone.style.visibility = 'visible';
+                    joystickZone.style.pointerEvents = 'auto';
+                    
+                    // Sync look state with current camera rotation
+                    this.lookState.yaw = this.camera.rotation.y;
+                    this.lookState.pitch = this.camera.rotation.x;
+
+                    this.showStatus("Mobile Mode: Drag to look, Joystick to move.", "text-blue-400", 3000);
+                }
+            }
+
+            bindUI() {
+                // UI Show/Hide Toggle Button
+                const btnToggleMenu = document.getElementById('btn-toggle-menu');
+                const arrowIcon = document.getElementById('menu-arrow-icon');
+                const uiNav = document.getElementById('ui-nav');
+                let isMenuVisible = true;
+
+                btnToggleMenu.addEventListener('click', () => {
+                    isMenuVisible = !isMenuVisible;
+                    if (isMenuVisible) {
+                        uiNav.style.transform = 'translateY(0)';
+                        btnToggleMenu.classList.remove('bg-blue-600');
+                        btnToggleMenu.classList.add('bg-gray-800/80');
+                        arrowIcon.classList.remove('rotate-180');
+                    } else {
+                        uiNav.style.transform = 'translateY(-100%)';
+                        btnToggleMenu.classList.add('bg-blue-600');
+                        btnToggleMenu.classList.remove('bg-gray-800/80');
+                        arrowIcon.classList.add('rotate-180');
+                    }
+                });
+
+                // Mode switchers
+                document.getElementById('btn-mode-pc').addEventListener('click', () => this.setControlMode('pc'));
+                document.getElementById('btn-mode-mobile').addEventListener('click', () => this.setControlMode('mobile'));
+                
+                // Toggle Grid Event
+                document.getElementById('btn-toggle-grid').addEventListener('click', (e) => {
+                    if (this.gridHelper) {
+                        this.gridHelper.setEnabled(!this.gridHelper.isEnabled());
+                    }
+                    
+                    this.axesVisible = !this.axesVisible;
+                    if (this.axesHelper) {
+                        this.axesHelper.xAxis.setEnabled(this.axesVisible);
+                        this.axesHelper.yAxis.setEnabled(this.axesVisible);
+                        this.axesHelper.zAxis.setEnabled(this.axesVisible);
+                    }
+                    
+                    const isVisible = this.gridHelper ? this.gridHelper.isEnabled() : false;
+                    e.target.innerText = `Grid: ${isVisible ? 'ON' : 'OFF'}`;
+                    
+                    if (isVisible) {
+                        e.target.classList.add('bg-gray-700', 'text-white', 'border-gray-600');
+                        e.target.classList.remove('bg-gray-800', 'text-gray-500', 'border-gray-700');
+                    } else {
+                        e.target.classList.add('bg-gray-800', 'text-gray-500', 'border-gray-700');
+                        e.target.classList.remove('bg-gray-700', 'text-white', 'border-gray-600');
+                    }
+                });
+
+                // Load Sample Event
+                const btnLoadSample = document.getElementById('btn-load-sample');
+                btnLoadSample.addEventListener('click', async () => {
+                    const spinner = document.getElementById('loading-spinner');
+                    const btnLoad = document.getElementById('btn-load');
+                    
+                    spinner.classList.remove('hidden');
+                    btnLoad.disabled = true;
+                    btnLoadSample.disabled = true;
+
+                    try {
+                        await this.loadSplatData('https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/bonsai/bonsai-7k.splat');
+                        if (window.innerWidth < 640 && isMenuVisible) btnToggleMenu.click();
+                    } catch (error) {
+                        console.error("Loading error:", error);
+                        this.showStatus("Failed to load Sample Splat. See console.", "text-red-500", 4000);
+                    } finally {
+                        spinner.classList.add('hidden');
+                        btnLoad.disabled = false;
+                        btnLoadSample.disabled = false;
+                    }
+                });
+
+                // Load Data Event
+                const btnLoad = document.getElementById('btn-load');
+                btnLoad.addEventListener('click', async () => {
+                    const urlInput = document.getElementById('url-input').value.trim();
+                    const fileInput = document.getElementById('file-input').files[0];
+                    
+                    if (!urlInput && !fileInput) {
+                        this.showStatus("Please provide a URL or select a file.", "text-red-400", 3000);
+                        return;
+                    }
+
+                    const spinner = document.getElementById('loading-spinner');
+                    spinner.classList.remove('hidden');
+                    btnLoad.disabled = true;
+
+                    try {
+                        if (fileInput) {
+                            const fileURL = URL.createObjectURL(fileInput);
+                            // Set .splat extension explicitly for Babylon loader recognizing blob URLs
+                            await this.loadSplatData(fileURL, ".splat");
+                        } else if (urlInput) {
+                            await this.loadSplatData(urlInput);
+                        }
+                        if (window.innerWidth < 640 && isMenuVisible) btnToggleMenu.click();
+                    } catch (error) {
+                        console.error("Loading error:", error);
+                        this.showStatus("Failed to load Splat. See console for details.", "text-red-500", 4000);
+                    } finally {
+                        spinner.classList.add('hidden');
+                        btnLoad.disabled = false;
+                    }
+                });
+            }
+
+            async loadSplatData(url, forcedExtension = undefined) {
+                this.showStatus("Loading and Sorting Splat Data...", "text-blue-300", 99999);
+                
+                if (this.splatMesh) {
+                    this.splatMesh.dispose();
+                    this.splatMesh = null;
+                }
+
+                try {
+                    // Babylon.js automatically uses Web Workers for Splat sorting in the background.
+                    // The .splat loader is native in v7 via babylonjs.loaders.min.js
+                    const result = await BABYLON.SceneLoader.ImportMeshAsync("", url, "", this.scene, undefined, forcedExtension);
+                    this.splatMesh = result.meshes[0];
+                    
+                    this.splatMesh.position = new BABYLON.Vector3(0, 0, 0);
+                    
+                    // Babylon's native loader handles OpenCV Y-down conversions automatically.
+                    // We reset the rotation to zero so it's not flipped upside down.
+                    this.splatMesh.rotation = new BABYLON.Vector3(0, 0, 0);
+
+                    this.showStatus("Scene loaded successfully!", "text-emerald-400", 3000);
+                    return true;
+                } catch (error) {
+                    console.error("Failed to load Splat data:", error);
+                    throw error;
+                }
+            }
+
+            showStatus(message, colorClass, durationMs) {
+                const container = document.getElementById('status-message');
+                const text = document.getElementById('status-text');
+                
+                text.className = `text-center font-medium ${colorClass} text-sm`;
+                text.innerText = message;
+                
+                container.classList.remove('opacity-0', 'scale-95');
+                container.classList.add('opacity-100', 'scale-100');
+                
+                if (this.statusTimeout) clearTimeout(this.statusTimeout);
+                
+                this.statusTimeout = setTimeout(() => {
+                    container.classList.remove('opacity-100', 'scale-100');
+                    container.classList.add('opacity-0', 'scale-95');
+                }, durationMs);
+            }
+
+            updateCamera(delta) {
+                if (this.isXR) return;
+
+                // 1. Apply Rotation (Babylon Euler Angles)
+                this.camera.rotation.y = this.lookState.yaw;
+                this.camera.rotation.x = this.lookState.pitch;
+
+                // 2. Apply Position mathematically to mirror Three.js mechanics perfectly
+                if (this.moveState.forward !== 0 || this.moveState.right !== 0) {
+                    const speedMultiplier = this.moveState.sprint ? 2.5 : 1.0;
+                    const activeSpeed = this.movementSpeed * speedMultiplier * delta;
+
+                    // Babylon is Left-Handed: Forward is +Z, Right is +X
+                    const forward = this.camera.getDirection(BABYLON.Vector3.Forward());
+                    forward.y = 0; 
+                    forward.normalize();
+
+                    const right = this.camera.getDirection(BABYLON.Vector3.Right());
+                    right.y = 0;
+                    right.normalize();
+
+                    // Calculate translation vector
+                    const moveVec = forward.scale(this.moveState.forward).add(right.scale(this.moveState.right));
+                    
+                    if (moveVec.lengthSquared() > 0) {
+                        moveVec.normalize().scaleInPlace(activeSpeed);
+                        this.camera.position.addInPlace(moveVec);
+                    }
+                }
+            }
+
+            startRenderLoop() {
+                // Babylon Native Render Loop automatically hooks into WebXR when active
+                this.engine.runRenderLoop(() => {
+                    // Delta time in seconds
+                    const delta = this.engine.getDeltaTime() / 1000.0;
+                    
+                    this.updateCamera(delta);
+                    this.scene.render();
+                });
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const app = new BabylonSplatViewerApp();
+            app.init();
+        });
+
+    </script>
+</body>
+</html>
