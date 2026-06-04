@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>High-Performance 3DGS Viewer</title>
-
-    <!-- Tailwind CSS for modern UI -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Gaussian Splat Viewer (WebGL/XR)</title>
+    
+    <!-- Tailwind CSS for rapid UI styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- NippleJS for Mobile Virtual Joystick -->
+    <!-- NippleJS for Mobile Virtual Joysticks -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
-    <!-- Import Map for Three.js and GaussianSplats3D -->
+    <!-- Import Map for ES Modules (Simulating Vite/Bundler behavior in browser) -->
+    <!-- Note: Using the exact same import map from the working version -->
     <script type="importmap">
         {
             "imports": {
@@ -103,111 +104,135 @@
     <script type="module">
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { ARButton } from 'three/addons/webxr/ARButton.js';
         import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 
-        class SplatApplication {
+        class SplatViewerApp {
             constructor() {
-                // Core Three.js components
-                this.scene = new THREE.Scene();
-                this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 500);
-                
-                // Use alpha: true, iOS sometimes prefers an alpha channel in the framebuffer
-                this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
                 this.clock = new THREE.Clock();
                 
-                // Gaussian Splatting Viewer
+                // Viewer specific
                 this.splatViewer = null;
-
-                // State Management
-                this.controlMode = 'pc'; // 'pc' | 'mobile'
-                this.moveState = { forward: 0, right: 0 };
                 
-                // Camera Kinematics State
-                this.lookState = { yaw: 0, pitch: 0 }; // Used for mobile touch look
-                this.pointerLockControls = null;
+                // Grid & Axes
+                this.gridHelper = null;
+                this.axesHelper = null;
+                
+                // Controls state
+                this.controls = null;
                 this.joystickManager = null;
+                this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                this.controlMode = 'pc'; // Default
+                
+                // Movement State (PC & Mobile)
+                this.moveState = { forward: 0, right: 0, sprint: false };
+                this.lookState = { yaw: 0, pitch: 0 };
+                this.movementSpeed = 5.0; // Base speed
                 
                 // Touch look tracking variables
                 this.isDragging = false;
                 this.previousTouch = { x: 0, y: 0 };
 
-                this.init();
+                // WebXR state
+                this.isXR = false;
             }
 
-            init() {
+            async init() {
+                this.setupScene();
                 this.setupRenderer();
-                this.setupSceneFallback();
                 this.setupControls();
-                this.bindUIEvents();
+                this.bindUI();
                 
                 // Auto-detect mode based on touch capability
-                if (navigator.maxTouchPoints > 0 || 'ontouchstart' in window) {
+                if (this.isTouchDevice) {
                     this.setControlMode('mobile');
                 }
 
-                // Start WebXR-ready render loop
+                // Start render loop immediately as done in the working version
                 this.startRenderLoop();
-                
                 this.showStatus("System initialized. Load a .splat file or URL.", "text-gray-300", 3000);
             }
 
-            setupRenderer() {
-                const container = document.getElementById('canvas-container');
-                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            setupScene() {
+                this.scene = new THREE.Scene();
                 
-                // CRITICAL FOR iOS: Limit pixel ratio to 1 on mobile to prevent WebGL context crash
-                const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-                this.renderer.setPixelRatio(isMobile ? 1.0 : Math.min(window.devicePixelRatio, 2));
-                
-                // WebXR Support Flag (Architecture prep)
-                this.renderer.xr.enabled = true;
-                
-                container.appendChild(this.renderer.domElement);
-
-                // Handle window resizing
-                window.addEventListener('resize', () => {
-                    this.camera.aspect = window.innerWidth / window.innerHeight;
-                    this.camera.updateProjectionMatrix();
-                    this.renderer.setSize(window.innerWidth, window.innerHeight);
-                });
-            }
-
-            setupSceneFallback() {
-                // Set default camera position
+                this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
                 this.camera.position.set(0, 1.5, 4);
 
-                // Add a fallback 3D grid and axes so the user knows the renderer is working
+                // Add grid and axes
                 this.gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
                 this.scene.add(this.gridHelper);
 
                 this.axesHelper = new THREE.AxesHelper(5);
                 this.scene.add(this.axesHelper);
+            }
 
-                // Add a simple mesh as a focal point
-                const geometry = new THREE.BoxGeometry(1, 1, 1);
-                const material = new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: true });
-                this.fallbackCube = new THREE.Mesh(geometry, material);
-                this.fallbackCube.position.y = 0.5;
-                this.scene.add(this.fallbackCube);
+            setupRenderer() {
+                const container = document.getElementById('canvas-container');
+                
+                // Using the exact renderer configuration from the working version
+                this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                
+                // CRITICAL FOR iOS: Limit pixel ratio to 1 on mobile to prevent WebGL context crash
+                const maxPixelRatio = this.isTouchDevice ? 1.0 : Math.min(window.devicePixelRatio, 2);
+                this.renderer.setPixelRatio(maxPixelRatio);
+                
+                this.renderer.xr.enabled = true; // Enable WebXR rendering pipeline
+                
+                container.appendChild(this.renderer.domElement);
+
+                // Handle Resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+
+                // Track XR Sessions
+                this.renderer.xr.addEventListener('sessionstart', () => { this.isXR = true; });
+                this.renderer.xr.addEventListener('sessionend', () => { this.isXR = false; });
             }
 
             setupControls() {
-                // 1. PC Mode: PointerLock API
-                this.pointerLockControls = new PointerLockControls(this.camera, this.renderer.domElement);
+                // --- PC Controls (PointerLock + WASD) ---
+                this.controls = new PointerLockControls(this.camera, this.renderer.domElement);
                 
-                // Click on canvas to lock pointer (PC Mode)
                 this.renderer.domElement.addEventListener('click', () => {
-                    if (this.controlMode === 'pc' && !this.pointerLockControls.isLocked) {
-                        this.pointerLockControls.lock();
+                    if (this.controlMode === 'pc' && !this.controls.isLocked && !this.isXR) {
+                        this.controls.lock();
                     }
                 });
 
-                // PC Keyboard Listeners (WASD)
-                document.addEventListener('keydown', (e) => this.handleKeyboard(e.code, true));
-                document.addEventListener('keyup', (e) => this.handleKeyboard(e.code, false));
+                document.addEventListener('keydown', (e) => {
+                    if (this.controlMode !== 'pc') return;
+                    switch(e.code) {
+                        case 'KeyW': this.moveState.forward = 1; break;
+                        case 'KeyS': this.moveState.forward = -1; break;
+                        case 'KeyA': this.moveState.right = -1; break;
+                        case 'KeyD': this.moveState.right = 1; break;
+                        case 'ShiftLeft': this.moveState.sprint = true; break;
+                    }
+                });
 
-                // 2. Mobile Mode: Virtual Joystick (Movement)
+                document.addEventListener('keyup', (e) => {
+                    if (this.controlMode !== 'pc') return;
+                    switch(e.code) {
+                        case 'KeyW':
+                        case 'KeyS': this.moveState.forward = 0; break;
+                        case 'KeyA':
+                        case 'KeyD': this.moveState.right = 0; break;
+                        case 'ShiftLeft': this.moveState.sprint = false; break;
+                    }
+                });
+
+                // --- Mobile Controls (Joystick + Touch Drag) ---
                 const joystickZone = document.getElementById('joystick-zone');
+                
                 this.joystickManager = nipplejs.create({
                     zone: joystickZone,
                     mode: 'static',
@@ -218,7 +243,6 @@
 
                 this.joystickManager.on('move', (evt, data) => {
                     if (this.controlMode !== 'mobile') return;
-                    // Map joystick angle and force to forward/right vectors
                     const force = Math.min(data.force, 1.0);
                     this.moveState.forward = Math.sin(data.angle.radian) * force;
                     this.moveState.right = Math.cos(data.angle.radian) * force;
@@ -229,11 +253,9 @@
                     this.moveState.right = 0;
                 });
 
-                // 3. Mobile Mode: Touch Drag (Look)
+                // Touch Drag for Look
                 this.renderer.domElement.addEventListener('touchstart', (e) => {
-                    if (this.controlMode !== 'mobile') return;
-                    if (e.touches.length > 1) return;
-                    
+                    if (this.controlMode !== 'mobile' || e.touches.length > 1) return;
                     this.isDragging = true;
                     this.previousTouch.x = e.touches[0].pageX;
                     this.previousTouch.y = e.touches[0].pageY;
@@ -262,7 +284,7 @@
                     this.isDragging = false;
                 });
 
-                // 4. Mobile Mode (PC Fallback): Mouse Drag (Look)
+                // Mouse Drag for Mobile Mode fallback on PC
                 this.renderer.domElement.addEventListener('mousedown', (e) => {
                     if (this.controlMode !== 'mobile') return;
                     this.isDragging = true;
@@ -293,17 +315,6 @@
                 });
             }
 
-            handleKeyboard(code, isPressed) {
-                if (this.controlMode !== 'pc') return;
-                const value = isPressed ? 1 : 0;
-                switch(code) {
-                    case 'KeyW': this.moveState.forward = value; break;
-                    case 'KeyS': this.moveState.forward = -value; break;
-                    case 'KeyA': this.moveState.right = -value; break;
-                    case 'KeyD': this.moveState.right = value; break;
-                }
-            }
-
             setControlMode(mode) {
                 this.controlMode = mode;
                 const btnPc = document.getElementById('btn-mode-pc');
@@ -316,17 +327,16 @@
                 if (mode === 'pc') {
                     btnPc.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
                     btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors";
-                    
                     joystickZone.style.display = 'none';
                     this.showStatus("PC Mode: WASD to move, Click to look.", "text-blue-400", 3000);
-                    
                 } else {
                     btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
                     btnPc.className = "px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors";
                     
-                    this.pointerLockControls.unlock();
+                    this.controls.unlock();
                     joystickZone.style.display = 'block';
                     
+                    // Sync look state
                     const euler = new THREE.Euler(0, 0, 0, 'YXZ').setFromQuaternion(this.camera.quaternion);
                     this.lookState.yaw = -euler.y;
                     this.lookState.pitch = -euler.x;
@@ -335,7 +345,7 @@
                 }
             }
 
-            bindUIEvents() {
+            bindUI() {
                 // UI Show/Hide Toggle Button
                 const btnToggleMenu = document.getElementById('btn-toggle-menu');
                 const uiNav = document.getElementById('ui-nav');
@@ -360,11 +370,6 @@
                 document.getElementById('btn-mode-pc').addEventListener('click', () => this.setControlMode('pc'));
                 document.getElementById('btn-mode-mobile').addEventListener('click', () => this.setControlMode('mobile'));
                 
-                // WebXR Button (Placeholder logic)
-                document.getElementById('btn-vr').addEventListener('click', () => {
-                    console.log("WebXR session request would be initiated here.");
-                });
-
                 // Toggle Grid Event
                 document.getElementById('btn-toggle-grid').addEventListener('click', (e) => {
                     if (this.gridHelper) this.gridHelper.visible = !this.gridHelper.visible;
@@ -393,11 +398,8 @@
                     btnLoadSample.disabled = true;
 
                     try {
-                        await this.loadGaussianSplat('https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/bonsai/bonsai-7k.splat');
-                        // Auto-hide menu on mobile after loading sample
-                        if (window.innerWidth < 640 && isMenuVisible) {
-                            btnToggleMenu.click();
-                        }
+                        await this.loadSplatData('https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/bonsai/bonsai-7k.splat');
+                        if (window.innerWidth < 640 && isMenuVisible) btnToggleMenu.click();
                     } catch (error) {
                         console.error("Loading error:", error);
                         this.showStatus("Failed to load Sample Splat. See console.", "text-red-500", 4000);
@@ -426,14 +428,11 @@
                     try {
                         if (fileInput) {
                             const fileURL = URL.createObjectURL(fileInput);
-                            await this.loadGaussianSplat(fileURL);
+                            await this.loadSplatData(fileURL);
                         } else if (urlInput) {
-                            await this.loadGaussianSplat(urlInput);
+                            await this.loadSplatData(urlInput);
                         }
-                        // Auto-hide menu on mobile after loading
-                        if (window.innerWidth < 640 && isMenuVisible) {
-                            btnToggleMenu.click();
-                        }
+                        if (window.innerWidth < 640 && isMenuVisible) btnToggleMenu.click();
                     } catch (error) {
                         console.error("Loading error:", error);
                         this.showStatus("Failed to load Splat. See console for details.", "text-red-500", 4000);
@@ -444,46 +443,41 @@
                 });
             }
 
-            async loadGaussianSplat(sourceUrl) {
+            async loadSplatData(url) {
                 this.showStatus("Initializing Splat Workers & Sorting...", "text-blue-300", 99999);
-
+                
                 if (this.splatViewer) {
                     this.scene.remove(this.splatViewer);
                     this.splatViewer.dispose();
                     this.splatViewer = null;
                 }
 
-                const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
+                // Using the exact initialization payload from the working version
                 this.splatViewer = new GaussianSplats3D.DropInViewer({
+                    dynamicScene: false,
+                    sharedMemoryForWorkers: false,
                     camera: this.camera,
                     renderer: this.renderer,
-                    sharedMemoryForWorkers: false,
-                    dynamicScene: false,
-                    // Re-added iOS/Mobile optimizations from the working version
-                    sphericalHarmonicsDegree: isMobile ? 0 : 1,
+                    sphericalHarmonicsDegree: this.isTouchDevice ? 0 : 1,
                     halfPrecisionCovariancesOnGPU: true
                 });
 
                 this.scene.add(this.splatViewer);
 
                 try {
-                    await this.splatViewer.addSplatScene(sourceUrl, {
-                        splatAlphaCrop: 0.1, 
+                    const alphaCrop = this.isTouchDevice ? 0.2 : 0.1;
+                    await this.splatViewer.addSplatScene(url, {
+                        splatAlphaCrop: alphaCrop,
                         showLoadingUI: false
                     });
-
-                    this.splatViewer.rotation.x = Math.PI; 
-
-                    if (this.fallbackCube) {
-                        this.scene.remove(this.fallbackCube);
-                        this.fallbackCube.geometry.dispose();
-                        this.fallbackCube.material.dispose();
-                        this.fallbackCube = null;
-                    }
+                    
+                    this.splatViewer.position.set(0, 0, 0);
+                    this.splatViewer.rotation.x = Math.PI;
 
                     this.showStatus("Scene loaded successfully!", "text-emerald-400", 3000);
+                    return true;
                 } catch (error) {
+                    console.error("Failed to load Splat data:", error);
                     throw error;
                 }
             }
@@ -506,30 +500,35 @@
                 }, durationMs);
             }
 
-            updateKinematics(delta) {
-                const speed = 5.0 * delta;
+            updateCamera(delta) {
+                if (this.isXR) return;
 
+                // Handle Mobile Look Rotation via Euler angles
                 if (this.controlMode === 'mobile') {
                     const euler = new THREE.Euler(-this.lookState.pitch, -this.lookState.yaw, 0, 'YXZ');
                     this.camera.quaternion.setFromEuler(euler);
                 }
 
+                // Handle Movement
                 if (this.moveState.forward !== 0 || this.moveState.right !== 0) {
+                    const speedMultiplier = this.moveState.sprint ? 2.5 : 1.0;
+                    const activeSpeed = this.movementSpeed * speedMultiplier * delta;
+
                     const dirForward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
                     dirForward.y = 0; 
                     dirForward.normalize();
 
                     const dirRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-                    dirRight.y = 0; 
+                    dirRight.y = 0;
                     dirRight.normalize();
 
-                    const velocity = new THREE.Vector3();
-                    velocity.addScaledVector(dirForward, this.moveState.forward);
-                    velocity.addScaledVector(dirRight, this.moveState.right);
+                    const moveVec = new THREE.Vector3();
+                    moveVec.addScaledVector(dirForward, this.moveState.forward);
+                    moveVec.addScaledVector(dirRight, this.moveState.right);
                     
-                    if (velocity.lengthSq() > 0) {
-                        velocity.normalize().multiplyScalar(speed);
-                        this.camera.position.add(velocity);
+                    if (moveVec.lengthSq() > 0) {
+                        moveVec.normalize().multiplyScalar(activeSpeed);
+                        this.camera.position.add(moveVec);
                     }
                 }
             }
@@ -537,20 +536,15 @@
             startRenderLoop() {
                 this.renderer.setAnimationLoop(() => {
                     const delta = this.clock.getDelta();
-                    
-                    if (this.fallbackCube) {
-                        this.fallbackCube.rotation.x += delta * 0.5;
-                        this.fallbackCube.rotation.y += delta * 1.0;
-                    }
-
-                    this.updateKinematics(delta);
+                    this.updateCamera(delta);
                     this.renderer.render(this.scene, this.camera);
                 });
             }
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-            window.app = new SplatApplication();
+            const app = new SplatViewerApp();
+            app.init();
         });
 
     </script>
