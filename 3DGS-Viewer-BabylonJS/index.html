@@ -60,9 +60,9 @@
                 <button id="btn-mode-mobile" class="px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors">Mobile</button>
             </div>
 
-            <!-- WebXR Button -->
-            <button id="btn-vr" disabled class="px-3 py-1 rounded-md text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-800 cursor-not-allowed opacity-70">
-                VR
+            <!-- WebXR Button (Dynamically enabled by script) -->
+            <button id="btn-vr" disabled class="px-3 py-1 rounded-md text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-800 cursor-not-allowed opacity-70 transition-colors">
+                VR / AR
             </button>
 
             <!-- Grid Toggle Button -->
@@ -71,7 +71,7 @@
             </button>
             
             <!-- Load Sample Button -->
-            <button id="btn-load-sample" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-md text-xs font-medium transition-colors border border-indigo-500">
+            <button id="btn-load-sample" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-md text-xs font-medium transition-colors border border-indigo-500" title="Load Custom Splat">
                 Sample
             </button>
         </div>
@@ -104,7 +104,7 @@
     <!-- Virtual Joystick Container -->
     <div id="joystick-zone" class="pointer-events-auto"></div>
 
-    <!-- Error Catcher Script (Same as before) -->
+    <!-- Error Catcher Script -->
     <script>
         const debugConsole = document.getElementById('debug-console');
         const btnToggleDebug = document.getElementById('btn-toggle-debug');
@@ -184,6 +184,8 @@
 
                 // WebXR state
                 this.isXR = false;
+                this.xrHelper = null;
+                this.xrSessionMode = null;
             }
 
             async init() {
@@ -191,6 +193,7 @@
                 this.setupScene();
                 this.setupControls();
                 this.bindUI();
+                await this.setupWebXR(); // Initialize WebXR and enable button if supported
                 
                 // Auto-detect mode based on touch capability
                 if (this.isTouchDevice) {
@@ -232,6 +235,70 @@
 
                 // Add Axes
                 this.axesHelper = new BABYLON.AxesViewer(this.scene, 5);
+            }
+
+            async setupWebXR() {
+                try {
+                    // Check support for AR first (passthrough), then VR
+                    const arSupported = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-ar');
+                    const vrSupported = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-vr');
+
+                    if (arSupported || vrSupported) {
+                        this.xrSessionMode = arSupported ? 'immersive-ar' : 'immersive-vr';
+
+                        // Initialize the Default XR Experience
+                        this.xrHelper = await this.scene.createDefaultXRExperienceAsync({
+                            disableDefaultUI: true, // We use our own UI button
+                            floorMeshes: [this.gridHelper] // Allows teleportation in VR
+                        });
+
+                        const btnVr = document.getElementById('btn-vr');
+                        btnVr.disabled = false;
+                        btnVr.classList.remove('cursor-not-allowed', 'opacity-70');
+                        btnVr.classList.add('bg-purple-600', 'hover:bg-purple-500', 'text-white');
+                        btnVr.innerText = arSupported ? 'Enter AR' : 'Enter VR';
+
+                        btnVr.addEventListener('click', async () => {
+                            if (!this.xrHelper.baseExperience.state || this.xrHelper.baseExperience.state === BABYLON.WebXRState.NOT_IN_XR) {
+                                await this.xrHelper.baseExperience.enterXRAsync(this.xrSessionMode, 'local-floor');
+                            } else {
+                                await this.xrHelper.baseExperience.exitXRAsync();
+                            }
+                        });
+
+                        // Manage UI and Camera states when entering/exiting XR
+                        this.xrHelper.baseExperience.onStateChangedObservable.add((state) => {
+                            const uiNav = document.getElementById('ui-nav');
+                            const toggleMenu = document.getElementById('btn-toggle-menu');
+                            const toggleDebug = document.getElementById('btn-toggle-debug');
+                            const joystickZone = document.getElementById('joystick-zone');
+
+                            if (state === BABYLON.WebXRState.IN_XR) {
+                                this.isXR = true;
+                                uiNav.style.display = 'none';
+                                toggleMenu.style.display = 'none';
+                                toggleDebug.style.display = 'none';
+                                joystickZone.style.display = 'none';
+                                
+                                // Offset the XR camera so we don't spawn inside the model (since local-floor resets to 0,0,0)
+                                if (this.xrHelper.baseExperience.camera) {
+                                    this.xrHelper.baseExperience.camera.position.z = -3;
+                                }
+
+                            } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
+                                this.isXR = false;
+                                uiNav.style.display = 'flex';
+                                toggleMenu.style.display = 'block';
+                                toggleDebug.style.display = 'block';
+                                this.setControlMode(this.controlMode); // Restore controls (joystick etc)
+                            }
+                        });
+                    } else {
+                        console.log("WebXR is not supported on this device/browser.");
+                    }
+                } catch (e) {
+                    console.error("WebXR initialization failed:", e);
+                }
             }
 
             setupControls() {
@@ -465,7 +532,7 @@
                     btnLoadSample.disabled = true;
 
                     try {
-                        //await this.loadSplatData('https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/bonsai/bonsai-7k.splat');
+                        // User's custom URL sample
                         await this.loadSplatData('https://markosellman.github.io/3DGS-Samples/YhtyvatSateet-3DGS.splat');
                         if (window.innerWidth < 640 && isMenuVisible) btnToggleMenu.click();
                     } catch (error) {
