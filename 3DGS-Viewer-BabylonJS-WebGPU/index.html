@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>Babylon.js 3DGS Viewer</title>
+    <title>Babylon.js 3DGS Viewer (WebGPU)</title>
     
     <!-- Tailwind CSS for rapid UI styling -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -12,14 +12,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
     <!-- Babylon.js Core and Loaders (which include Gaussian Splatting support) -->
-    <!-- Using CDN scripts instead of ES modules maximizes iOS/Mobile compatibility -->
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
     <style>
         body { margin: 0; overflow: hidden; background-color: #111; touch-action: none; }
         
-        /* Render Canvas (Babylon requires a canvas element, not a div) */
+        /* Render Canvas */
         #renderCanvas { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; outline: none; }
         
         /* UI Layers */
@@ -50,32 +49,27 @@
         </svg>
     </button>
 
-    <!-- Top Navigation Bar (Compact) -->
+    <!-- Top Navigation Bar -->
     <nav id="ui-nav" class="bg-black/70 backdrop-blur-md border-b border-gray-800 p-2 pr-12 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-xl">
         <div class="flex items-center gap-2 flex-wrap justify-center">
             
-            <!-- Control Mode Switcher -->
             <div class="flex bg-gray-800 rounded-lg p-1 shadow-inner">
                 <button id="btn-mode-pc" class="px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white">PC</button>
                 <button id="btn-mode-mobile" class="px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors">Mobile</button>
             </div>
 
-            <!-- WebXR Button (Dynamically enabled by script) -->
             <button id="btn-vr" disabled class="px-3 py-1 rounded-md text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-800 cursor-not-allowed opacity-70 transition-colors">
                 VR / AR
             </button>
 
-            <!-- Grid Toggle Button -->
             <button id="btn-toggle-grid" class="px-3 py-1 rounded-md text-xs font-medium bg-gray-700 text-white hover:bg-gray-600 transition-colors border border-gray-600">
                 Grid: ON
             </button>
 
-            <!-- Performance Mode Toggle Button -->
             <button id="btn-toggle-perf" class="px-3 py-1 rounded-md text-xs font-medium bg-gray-700 text-white hover:bg-gray-600 transition-colors border border-gray-600" title="Toggle Hardware Scaling">
                 Perf: OFF
             </button>
             
-            <!-- Load Sample Button -->
             <button id="btn-load-sample" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-md text-xs font-medium transition-colors border border-indigo-500" title="Load Custom Splat">
                 Sample
             </button>
@@ -83,6 +77,9 @@
 
         <!-- Data Loading Controls -->
         <div class="flex items-center gap-2 flex-wrap justify-center w-full sm:w-auto mt-2 sm:mt-0">
+            <!-- WebGPU Indicator -->
+            <span class="text-xs font-bold text-green-400 border border-green-700 px-2 py-1 rounded bg-green-900/30">WebGPU</span>
+            
             <input type="text" id="url-input" placeholder="Paste .splat URL..." class="bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-xs w-28 sm:w-40 focus:outline-none focus:border-blue-500">
             <span class="text-[10px] text-gray-500">OR</span>
             <input type="file" id="file-input" accept=".splat,.ply" class="text-xs text-gray-400 w-36 sm:w-40">
@@ -153,7 +150,7 @@
             logDebug(`PROMISE REJECTION: ${event.reason}`, 'text-red-500 font-bold bg-red-900/30');
         });
 
-        console.log("Logger initialized. Waiting for Babylon.js...");
+        console.log("Logger initialized. Waiting for Babylon.js (WebGPU)...");
     </script>
 
     <!-- Application Script (Babylon.js Logic) -->
@@ -167,7 +164,7 @@
                 
                 // Viewer specific
                 this.splatMesh = null;
-                this.perfMode = false; // Tracks hardware scaling level
+                this.perfMode = false;
                 
                 // Grid & Axes
                 this.gridHelper = null;
@@ -177,12 +174,12 @@
                 // Controls state
                 this.joystickManager = null;
                 this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-                this.controlMode = 'pc'; // Default
+                this.controlMode = 'pc'; 
                 
-                // Movement State (PC & Mobile)
+                // Movement State
                 this.moveState = { forward: 0, right: 0, sprint: false };
                 this.lookState = { yaw: 0, pitch: 0 };
-                this.movementSpeed = 5.0; // Base speed
+                this.movementSpeed = 5.0; 
                 
                 // Touch look tracking variables
                 this.isDragging = false;
@@ -195,26 +192,33 @@
             }
 
             async init() {
-                this.setupEngine();
+                try {
+                    // Engine setup is asynchronous in WebGPU
+                    await this.setupEngine();
+                } catch (e) {
+                    this.showStatus("WebGPU is not supported by your browser. Use WebGL version.", "text-red-500", 99999);
+                    return;
+                }
+
                 this.setupScene();
                 this.setupControls();
                 this.bindUI();
-                await this.setupWebXR(); // Initialize WebXR and enable button if supported
+                await this.setupWebXR(); 
                 
-                // Auto-detect mode based on touch capability
                 if (this.isTouchDevice) {
                     this.setControlMode('mobile');
                 }
 
-                // Start Babylon render loop
                 this.startRenderLoop();
-                this.showStatus("System initialized. Load a .splat file or URL.", "text-gray-300", 3000);
+                this.showStatus("System initialized via WebGPU. Load a .splat file or URL.", "text-gray-300", 3000);
             }
 
-            setupEngine() {
-                // Adapt to device ratio ONLY on PC. On mobile, we force CSS resolution (DPR=1) to save GPU fill-rate.
+            async setupEngine() {
                 const adaptRatio = !this.isTouchDevice;
-                this.engine = new BABYLON.Engine(this.canvas, true, { preserveDrawingBuffer: false, stencil: false, adaptToDeviceRatio: adaptRatio });
+                
+                // Initialize WebGPU Engine
+                this.engine = new BABYLON.WebGPUEngine(this.canvas, { adaptToDeviceRatio: adaptRatio, antialias: false });
+                await this.engine.initAsync();
                 
                 window.addEventListener('resize', () => {
                     this.engine.resize();
@@ -223,14 +227,11 @@
 
             setupScene() {
                 this.scene = new BABYLON.Scene(this.engine);
-                // Keep background transparent for AR passthrough support
                 this.scene.clearColor = new BABYLON.Color4(0, 0, 0, 0); 
                 
-                // Using UniversalCamera but we will manipulate its rotation/position manually to guarantee 1:1 parity with the Three.js version
                 this.camera = new BABYLON.UniversalCamera("MainCamera", new BABYLON.Vector3(0, 1.5, -4), this.scene);
                 this.camera.minZ = 0.1;
                 
-                // Add Grid (Ground with wireframe)
                 const gridMat = new BABYLON.StandardMaterial("gridMat", this.scene);
                 gridMat.wireframe = true;
                 gridMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3);
@@ -239,23 +240,21 @@
                 this.gridHelper = BABYLON.MeshBuilder.CreateGround("grid", {width: 20, height: 20, subdivisions: 20}, this.scene);
                 this.gridHelper.material = gridMat;
 
-                // Add Axes
                 this.axesHelper = new BABYLON.AxesViewer(this.scene, 5);
             }
 
             async setupWebXR() {
                 try {
-                    // Check support for AR first (passthrough), then VR
+                    // Note: WebXR support through WebGPU is still experimental in many browsers.
                     const arSupported = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-ar');
                     const vrSupported = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-vr');
 
                     if (arSupported || vrSupported) {
                         this.xrSessionMode = arSupported ? 'immersive-ar' : 'immersive-vr';
 
-                        // Initialize the Default XR Experience
                         this.xrHelper = await this.scene.createDefaultXRExperienceAsync({
-                            disableDefaultUI: true, // We use our own UI button
-                            floorMeshes: [this.gridHelper] // Allows teleportation in VR
+                            disableDefaultUI: true,
+                            floorMeshes: [this.gridHelper]
                         });
 
                         const btnVr = document.getElementById('btn-vr');
@@ -272,7 +271,6 @@
                             }
                         });
 
-                        // Manage UI and Camera states when entering/exiting XR
                         this.xrHelper.baseExperience.onStateChangedObservable.add((state) => {
                             const uiNav = document.getElementById('ui-nav');
                             const toggleMenu = document.getElementById('btn-toggle-menu');
@@ -286,7 +284,6 @@
                                 toggleDebug.style.display = 'none';
                                 joystickZone.style.display = 'none';
                                 
-                                // Offset the XR camera so we don't spawn inside the model (since local-floor resets to 0,0,0)
                                 if (this.xrHelper.baseExperience.camera) {
                                     this.xrHelper.baseExperience.camera.position.z = -3;
                                 }
@@ -296,19 +293,19 @@
                                 uiNav.style.display = 'flex';
                                 toggleMenu.style.display = 'block';
                                 toggleDebug.style.display = 'block';
-                                this.setControlMode(this.controlMode); // Restore controls (joystick etc)
+                                this.setControlMode(this.controlMode);
                             }
                         });
                     } else {
                         console.log("WebXR is not supported on this device/browser.");
                     }
                 } catch (e) {
-                    console.error("WebXR initialization failed:", e);
+                    console.error("WebXR initialization failed. Often WebXR + WebGPU has limited support currently:", e);
                 }
             }
 
             setupControls() {
-                // --- PC Controls (PointerLock mapped manually) ---
+                // --- PC Controls ---
                 this.canvas.addEventListener('click', () => {
                     if (this.controlMode === 'pc' && document.pointerLockElement !== this.canvas && !this.isXR) {
                         if (typeof this.canvas.requestPointerLock === 'function') {
@@ -325,7 +322,6 @@
                         this.lookState.yaw += e.movementX * sensitivity;
                         this.lookState.pitch += e.movementY * sensitivity;
                         
-                        // Clamp pitch
                         const PI_2 = Math.PI / 2 - 0.01;
                         this.lookState.pitch = Math.max(-PI_2, Math.min(PI_2, this.lookState.pitch));
                     }
@@ -353,7 +349,7 @@
                     }
                 });
 
-                // --- Mobile Controls (Joystick + Touch Drag) ---
+                // --- Mobile Controls ---
                 const joystickZone = document.getElementById('joystick-zone');
                 
                 this.joystickManager = nipplejs.create({
@@ -367,7 +363,6 @@
                 this.joystickManager.on('move', (evt, data) => {
                     if (this.controlMode !== 'mobile') return;
                     const force = Math.min(data.force, 1.0);
-                    // In Babylon, +Z is forward, +X is right. Mappings match visually.
                     this.moveState.forward = Math.sin(data.angle.radian) * force;
                     this.moveState.right = Math.cos(data.angle.radian) * force;
                 });
@@ -377,7 +372,6 @@
                     this.moveState.right = 0;
                 });
 
-                // Touch Drag for Look
                 this.canvas.addEventListener('touchstart', (e) => {
                     if (this.controlMode !== 'mobile' || e.touches.length > 1) return;
                     this.isDragging = true;
@@ -408,7 +402,6 @@
                     this.isDragging = false;
                 });
 
-                // Mouse Drag for Mobile Mode fallback on PC
                 this.canvas.addEventListener('mousedown', (e) => {
                     if (this.controlMode !== 'mobile') return;
                     this.isDragging = true;
@@ -460,7 +453,6 @@
                     btnMobile.className = "px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white";
                     btnPc.className = "px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors";
                     
-                    // Unlock pointer lock on PC mode exit
                     if (document.pointerLockElement === this.canvas && typeof document.exitPointerLock === 'function') {
                         document.exitPointerLock();
                     }
@@ -468,7 +460,6 @@
                     joystickZone.style.visibility = 'visible';
                     joystickZone.style.pointerEvents = 'auto';
                     
-                    // Sync look state with current camera rotation
                     this.lookState.yaw = this.camera.rotation.y;
                     this.lookState.pitch = this.camera.rotation.x;
 
@@ -477,7 +468,6 @@
             }
 
             bindUI() {
-                // UI Show/Hide Toggle Button
                 const btnToggleMenu = document.getElementById('btn-toggle-menu');
                 const arrowIcon = document.getElementById('menu-arrow-icon');
                 const uiNav = document.getElementById('ui-nav');
@@ -498,11 +488,9 @@
                     }
                 });
 
-                // Mode switchers
                 document.getElementById('btn-mode-pc').addEventListener('click', () => this.setControlMode('pc'));
                 document.getElementById('btn-mode-mobile').addEventListener('click', () => this.setControlMode('mobile'));
                 
-                // Toggle Grid Event
                 document.getElementById('btn-toggle-grid').addEventListener('click', (e) => {
                     if (this.gridHelper) {
                         this.gridHelper.setEnabled(!this.gridHelper.isEnabled());
@@ -532,17 +520,13 @@
                     this.perfMode = !this.perfMode;
                     
                     if (this.perfMode) {
-                        // Increase scaling level (reduces resolution). Level 2.0 = half resolution
                         this.engine.setHardwareScalingLevel(2.0);
-                        
                         e.target.innerText = 'Perf: ON';
                         e.target.classList.remove('bg-gray-700', 'border-gray-600');
                         e.target.classList.add('bg-green-600', 'border-green-500');
                         this.showStatus("Performance Mode: Half Resolution enabled.", "text-green-400", 3000);
                     } else {
-                        // Restore base scaling level
                         this.engine.setHardwareScalingLevel(1.0);
-                        
                         e.target.innerText = 'Perf: OFF';
                         e.target.classList.remove('bg-green-600', 'border-green-500');
                         e.target.classList.add('bg-gray-700', 'border-gray-600');
@@ -550,18 +534,15 @@
                     }
                 });
 
-                // Load Sample Event
-                const btnLoadSample = document.getElementById('btn-load-sample');
-                btnLoadSample.addEventListener('click', async () => {
+                document.getElementById('btn-load-sample').addEventListener('click', async () => {
                     const spinner = document.getElementById('loading-spinner');
                     const btnLoad = document.getElementById('btn-load');
                     
                     spinner.classList.remove('hidden');
                     btnLoad.disabled = true;
-                    btnLoadSample.disabled = true;
+                    document.getElementById('btn-load-sample').disabled = true;
 
                     try {
-                        // User's custom URL sample
                         await this.loadSplatData('https://markosellman.github.io/3DGS-Samples/YhtyvatSateet-3DGS.splat');
                         if (window.innerWidth < 640 && isMenuVisible) btnToggleMenu.click();
                     } catch (error) {
@@ -570,13 +551,11 @@
                     } finally {
                         spinner.classList.add('hidden');
                         btnLoad.disabled = false;
-                        btnLoadSample.disabled = false;
+                        document.getElementById('btn-load-sample').disabled = false;
                     }
                 });
 
-                // Load Data Event
-                const btnLoad = document.getElementById('btn-load');
-                btnLoad.addEventListener('click', async () => {
+                document.getElementById('btn-load').addEventListener('click', async () => {
                     const urlInput = document.getElementById('url-input').value.trim();
                     const fileInput = document.getElementById('file-input').files[0];
                     
@@ -587,12 +566,11 @@
 
                     const spinner = document.getElementById('loading-spinner');
                     spinner.classList.remove('hidden');
-                    btnLoad.disabled = true;
+                    document.getElementById('btn-load').disabled = true;
 
                     try {
                         if (fileInput) {
                             const fileURL = URL.createObjectURL(fileInput);
-                            // Set .splat extension explicitly for Babylon loader recognizing blob URLs
                             await this.loadSplatData(fileURL, ".splat");
                         } else if (urlInput) {
                             await this.loadSplatData(urlInput);
@@ -603,7 +581,7 @@
                         this.showStatus("Failed to load Splat. See console for details.", "text-red-500", 4000);
                     } finally {
                         spinner.classList.add('hidden');
-                        btnLoad.disabled = false;
+                        document.getElementById('btn-load').disabled = false;
                     }
                 });
             }
@@ -617,15 +595,10 @@
                 }
 
                 try {
-                    // Babylon.js automatically uses Web Workers for Splat sorting in the background.
-                    // The .splat loader is native in v7 via babylonjs.loaders.min.js
                     const result = await BABYLON.SceneLoader.ImportMeshAsync("", url, "", this.scene, undefined, forcedExtension);
                     this.splatMesh = result.meshes[0];
                     
                     this.splatMesh.position = new BABYLON.Vector3(0, 0, 0);
-                    
-                    // Babylon's native loader handles OpenCV Y-down conversions automatically.
-                    // We reset the rotation to zero so it's not flipped upside down.
                     this.splatMesh.rotation = new BABYLON.Vector3(0, 0, 0);
 
                     this.showStatus("Scene loaded successfully!", "text-emerald-400", 3000);
@@ -657,16 +630,13 @@
             updateCamera(delta) {
                 if (this.isXR) return;
 
-                // 1. Apply Rotation (Babylon Euler Angles)
                 this.camera.rotation.y = this.lookState.yaw;
                 this.camera.rotation.x = this.lookState.pitch;
 
-                // 2. Apply Position mathematically to mirror Three.js mechanics perfectly
                 if (this.moveState.forward !== 0 || this.moveState.right !== 0) {
                     const speedMultiplier = this.moveState.sprint ? 2.5 : 1.0;
                     const activeSpeed = this.movementSpeed * speedMultiplier * delta;
 
-                    // Babylon is Left-Handed: Forward is +Z, Right is +X
                     const forward = this.camera.getDirection(BABYLON.Vector3.Forward());
                     forward.y = 0; 
                     forward.normalize();
@@ -675,7 +645,6 @@
                     right.y = 0;
                     right.normalize();
 
-                    // Calculate translation vector
                     const moveVec = forward.scale(this.moveState.forward).add(right.scale(this.moveState.right));
                     
                     if (moveVec.lengthSquared() > 0) {
@@ -686,11 +655,8 @@
             }
 
             startRenderLoop() {
-                // Babylon Native Render Loop automatically hooks into WebXR when active
                 this.engine.runRenderLoop(() => {
-                    // Delta time in seconds
                     const delta = this.engine.getDeltaTime() / 1000.0;
-                    
                     this.updateCamera(delta);
                     this.scene.render();
                 });
