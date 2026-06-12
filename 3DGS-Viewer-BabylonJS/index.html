@@ -69,11 +69,6 @@
             <button id="btn-toggle-grid" class="px-3 py-1 rounded-md text-xs font-medium bg-gray-700 text-white hover:bg-gray-600 transition-colors border border-gray-600">
                 Grid: ON
             </button>
-
-            <!-- Performance Mode Toggle Button -->
-            <button id="btn-toggle-perf" class="px-3 py-1 rounded-md text-xs font-medium bg-gray-700 text-white hover:bg-gray-600 transition-colors border border-gray-600" title="Toggle Hardware Scaling">
-                Perf: OFF
-            </button>
             
             <!-- Load Sample Button -->
             <button id="btn-load-sample" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-md text-xs font-medium transition-colors border border-indigo-500" title="Load Custom Splat">
@@ -167,7 +162,6 @@
                 
                 // Viewer specific
                 this.splatMesh = null;
-                this.perfMode = false; // Tracks hardware scaling level
                 
                 // Grid & Axes
                 this.gridHelper = null;
@@ -524,29 +518,6 @@
                     } else {
                         e.target.classList.add('bg-gray-800', 'text-gray-500', 'border-gray-700');
                         e.target.classList.remove('bg-gray-700', 'text-white', 'border-gray-600');
-                    }
-                });
-
-                // Toggle Performance Mode (Hardware Scaling)
-                document.getElementById('btn-toggle-perf').addEventListener('click', (e) => {
-                    this.perfMode = !this.perfMode;
-                    
-                    if (this.perfMode) {
-                        // Increase scaling level (reduces resolution). Level 2.0 = half resolution
-                        this.engine.setHardwareScalingLevel(2.0);
-                        
-                        e.target.innerText = 'Perf: ON';
-                        e.target.classList.remove('bg-gray-700', 'border-gray-600');
-                        e.target.classList.add('bg-green-600', 'border-green-500');
-                        this.showStatus("Performance Mode: Half Resolution enabled.", "text-green-400", 3000);
-                    } else {
-                        // Restore base scaling level
-                        this.engine.setHardwareScalingLevel(1.0);
-                        
-                        e.target.innerText = 'Perf: OFF';
-                        e.target.classList.remove('bg-green-600', 'border-green-500');
-                        e.target.classList.add('bg-gray-700', 'border-gray-600');
-                        this.showStatus("Performance Mode disabled.", "text-blue-400", 3000);
                     }
                 });
 
