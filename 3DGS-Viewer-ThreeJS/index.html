@@ -475,7 +475,8 @@
                     btnLoadSample.disabled = true;
 
                     try {
-                        await this.loadSplatData('https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/bonsai/bonsai-7k.splat');
+                        //await this.loadSplatData('https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/bonsai/bonsai-7k.splat');
+                        await this.loadSplatData('https://markosellman.github.io/3DGS-Samples/YhtyvatSateet-3DGS.splat');
                         if (window.innerWidth < 640 && isMenuVisible) btnToggleMenu.click();
                     } catch (error) {
                         console.error("Loading error:", error);
