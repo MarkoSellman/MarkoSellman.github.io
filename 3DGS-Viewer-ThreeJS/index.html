@@ -6,9 +6,7 @@
     <title>Three.js 3DGS Viewer (WebXR)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
-
     <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
 
     <script type="importmap">
@@ -25,25 +23,26 @@
         body { margin: 0; overflow: hidden; background-color: #111; touch-action: none; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
         
-        /* UI Layers */
         #ui-nav { position: absolute; top: 0; width: 100%; z-index: 50; transition: transform 0.3s ease-in-out; }
         #ui-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 40; }
         .pointer-events-auto { pointer-events: auto; }
         
-        /* Mobile Joystick Area */
         #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 60; visibility: hidden; pointer-events: none; }
         
-        /* Loading Spinner */
         .spinner { border: 3px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        /* Custom Scrollbar for file inputs */
         ::-webkit-file-upload-button { background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
     </style>
 </head>
 <body class="text-white font-sans">
 
     <div id="canvas-container"></div>
+
+    <div id="xr-overlay" style="display: none;" class="absolute inset-0 pointer-events-none z-[9999]">
+        <button id="btn-exit-xr" class="absolute top-4 right-4 bg-red-600/90 hover:bg-red-500 text-white px-4 py-2 rounded-lg font-bold pointer-events-auto shadow-lg border border-red-400 backdrop-blur-sm">
+            Exit AR/VR
+        </button>
+    </div>
 
     <button id="btn-toggle-menu" class="absolute top-2 right-2 z-[60] bg-gray-800/80 hover:bg-gray-700 text-white p-1.5 rounded-md border border-gray-600 backdrop-blur-md transition-colors shadow-lg" title="Toggle Menu">
         <svg id="menu-arrow-icon" class="w-5 h-5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -53,7 +52,6 @@
 
     <nav id="ui-nav" class="bg-black/70 backdrop-blur-md border-b border-gray-800 p-2 pr-12 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-xl">
         <div class="flex items-center gap-2 flex-wrap justify-center">
-            
             <div class="flex bg-gray-800 rounded-lg p-1 shadow-inner">
                 <button id="btn-mode-pc" class="px-3 py-1 rounded-md text-xs font-medium transition-colors bg-blue-600 text-white">PC</button>
                 <button id="btn-mode-mobile" class="px-3 py-1 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors">Mobile</button>
@@ -154,29 +152,22 @@
                 this.renderer = null;
                 this.clock = new THREE.Clock();
                 
-                // Viewer specific
                 this.splatViewer = null;
-                
-                // Grid & Axes
                 this.gridHelper = null;
                 this.axesHelper = null;
                 
-                // Controls state
                 this.controls = null;
                 this.joystickManager = null;
                 this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-                this.controlMode = 'pc'; // Default
+                this.controlMode = 'pc'; 
                 
-                // Movement State (PC & Mobile)
                 this.moveState = { forward: 0, right: 0, sprint: false };
                 this.lookState = { yaw: 0, pitch: 0 };
-                this.movementSpeed = 5.0; // Base speed
+                this.movementSpeed = 5.0; 
                 
-                // Touch look tracking variables
                 this.isDragging = false;
                 this.previousTouch = { x: 0, y: 0 };
 
-                // WebXR state
                 this.isXR = false;
                 this.xrSessionMode = null;
             }
@@ -186,9 +177,8 @@
                 this.setupRenderer();
                 this.setupControls();
                 this.bindUI();
-                await this.setupWebXR(); // Initialize WebXR dynamically
+                await this.setupWebXR(); 
                 
-                // Auto-detect mode based on touch capability
                 if (this.isTouchDevice) {
                     this.setControlMode('mobile');
                 }
@@ -199,11 +189,9 @@
 
             setupScene() {
                 this.scene = new THREE.Scene();
-                
                 this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
                 this.camera.position.set(0, 1.5, 4);
 
-                // Add grid and axes
                 this.gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
                 this.scene.add(this.gridHelper);
 
@@ -214,19 +202,25 @@
             setupRenderer() {
                 const container = document.getElementById('canvas-container');
                 
-                // alpha: true is critical for AR passthrough support
-                this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+                // CRITICAL FOR iOS AR: premultipliedAlpha: false prevents the canvas from breaking
+                // alpha blending against the real-world camera feed in Safari WebXR.
+                this.renderer = new THREE.WebGLRenderer({ 
+                    antialias: false, 
+                    alpha: true,
+                    premultipliedAlpha: false 
+                });
+                // Explicitly clear to fully transparent to support passthrough
+                this.renderer.setClearColor(0x000000, 0);
+                
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
                 
-                // Limit pixel ratio to 1 on mobile to prevent WebGL context crash
                 const maxPixelRatio = this.isTouchDevice ? 1.0 : Math.min(window.devicePixelRatio, 2);
                 this.renderer.setPixelRatio(maxPixelRatio);
                 
-                this.renderer.xr.enabled = true; // Enable WebXR rendering pipeline
+                this.renderer.xr.enabled = true; 
                 
                 container.appendChild(this.renderer.domElement);
 
-                // Handle Resize
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth / window.innerHeight;
                     this.camera.updateProjectionMatrix();
@@ -237,7 +231,6 @@
             async setupWebXR() {
                 if ('xr' in navigator) {
                     try {
-                        // Check support for AR first (passthrough), then VR
                         const arSupported = await navigator.xr.isSessionSupported('immersive-ar');
                         const vrSupported = await navigator.xr.isSessionSupported('immersive-vr');
                         
@@ -251,21 +244,32 @@
                             btnVr.classList.add('bg-purple-600', 'hover:bg-purple-500', 'text-white');
                             btnVr.innerText = arSupported ? 'Enter AR' : 'Enter VR';
 
-                            // Handle click to enter/exit XR
                             btnVr.addEventListener('click', async () => {
                                 if (!this.isXR) {
-                                    const sessionInit = { optionalFeatures: ['local-floor', 'bounded-floor'] };
-                                    const session = await navigator.xr.requestSession(this.xrSessionMode, sessionInit);
+                                    // Initialize WebXR with DOM Overlay support
+                                    const sessionInit = { 
+                                        optionalFeatures: ['local-floor', 'bounded-floor', 'dom-overlay'],
+                                        domOverlay: { root: document.getElementById('xr-overlay') }
+                                    };
                                     
-                                    // local-floor reference maps Y=0 to the real physical floor
-                                    this.renderer.xr.setReferenceSpaceType('local-floor');
-                                    await this.renderer.xr.setSession(session);
+                                    try {
+                                        const session = await navigator.xr.requestSession(this.xrSessionMode, sessionInit);
+                                        this.renderer.xr.setReferenceSpaceType('local-floor');
+                                        await this.renderer.xr.setSession(session);
+                                    } catch (err) {
+                                        console.error("Failed to start XR session:", err);
+                                        this.showStatus("Failed to start XR session.", "text-red-500", 3000);
+                                    }
                                 } else {
                                     this.renderer.xr.getSession()?.end();
                                 }
                             });
 
-                            // Manage UI and Camera states when entering/exiting XR
+                            // Handle Exit Button inside DOM Overlay
+                            document.getElementById('btn-exit-xr').addEventListener('click', () => {
+                                this.renderer.xr.getSession()?.end();
+                            });
+
                             this.renderer.xr.addEventListener('sessionstart', () => {
                                 this.isXR = true;
                                 document.getElementById('ui-nav').style.display = 'none';
@@ -276,8 +280,9 @@
                                 joystickZone.style.visibility = 'hidden';
                                 joystickZone.style.pointerEvents = 'none';
                                 
-                                // Offset the entire scene so we don't spawn inside the model.
-                                // In XR, camera is mapped to physical space, so we move the scene.
+                                // Show the XR UI Overlay
+                                document.getElementById('xr-overlay').style.display = 'block';
+
                                 this.scene.position.set(0, 0, -3);
                             });
 
@@ -286,9 +291,11 @@
                                 document.getElementById('ui-nav').style.display = 'flex';
                                 document.getElementById('btn-toggle-menu').style.display = 'block';
                                 document.getElementById('btn-toggle-debug').style.display = 'block';
-                                this.setControlMode(this.controlMode); // Restore controls
-
-                                // Revert scene offset back to origin
+                                
+                                // Hide the XR UI Overlay
+                                document.getElementById('xr-overlay').style.display = 'none';
+                                
+                                this.setControlMode(this.controlMode); 
                                 this.scene.position.set(0, 0, 0);
                             });
                         } else {
@@ -301,7 +308,6 @@
             }
 
             setupControls() {
-                // --- PC Controls ---
                 this.controls = new PointerLockControls(this.camera, this.renderer.domElement);
                 
                 this.renderer.domElement.addEventListener('click', () => {
@@ -336,7 +342,6 @@
                     }
                 });
 
-                // --- Mobile Controls ---
                 const joystickZone = document.getElementById('joystick-zone');
                 
                 this.joystickManager = nipplejs.create({
@@ -359,7 +364,6 @@
                     this.moveState.right = 0;
                 });
 
-                // Touch Drag for Look
                 this.renderer.domElement.addEventListener('touchstart', (e) => {
                     if (this.controlMode !== 'mobile' || e.touches.length > 1) return;
                     this.isDragging = true;
@@ -390,7 +394,6 @@
                     this.isDragging = false;
                 });
 
-                // Mouse Drag for Mobile Mode fallback on PC
                 this.renderer.domElement.addEventListener('mousedown', (e) => {
                     if (this.controlMode !== 'mobile') return;
                     this.isDragging = true;
@@ -398,7 +401,7 @@
                     this.previousTouch.y = e.pageY;
                 });
 
-                this.renderer.domElement.addEventListener('mousemove', (e) => {
+                window.addEventListener('mousemove', (e) => {
                     if (this.controlMode !== 'mobile' || !this.isDragging) return;
                     e.preventDefault(); 
                     
@@ -414,7 +417,7 @@
 
                     this.previousTouch.x = e.pageX;
                     this.previousTouch.y = e.pageY;
-                });
+                }, { passive: false });
 
                 window.addEventListener('mouseup', () => {
                     this.isDragging = false;
@@ -577,7 +580,6 @@
                     });
                     
                     this.splatViewer.position.set(0, 0, 0);
-                    // Standard Three.js fix for OpenCV Y-down
                     this.splatViewer.rotation.x = Math.PI;
 
                     this.showStatus("Scene loaded successfully!", "text-emerald-400", 3000);
@@ -607,7 +609,7 @@
             }
 
             updateCamera(delta) {
-                if (this.isXR) return; // In WebXR, device pose dictates the camera transforms completely
+                if (this.isXR) return; 
 
                 if (this.controlMode === 'mobile') {
                     const euler = new THREE.Euler(-this.lookState.pitch, -this.lookState.yaw, 0, 'YXZ');
