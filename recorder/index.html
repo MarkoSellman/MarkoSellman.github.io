@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kuvausopas</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    background: #111;
+    color: #f0f0f0;
+    font-family: system-ui, sans-serif;
+    text-align: center;
+  }
+  main { width: 100%; max-width: 640px; }
+  h1 { font-size: 1.1rem; font-weight: 400; opacity: 0.6; margin: 0 0 8px; }
+  #progress { font-size: 0.9rem; opacity: 0.6; margin-bottom: 24px; }
+  #title { font-size: clamp(1.5rem, 5vw, 2.4rem); margin: 0 0 16px; }
+  #text { font-size: clamp(1.05rem, 3vw, 1.3rem); line-height: 1.5; margin-bottom: 24px; }
+  #checklist { text-align: left; list-style: none; padding: 0; margin: 0 0 24px; }
+  #checklist li { padding: 10px 12px; margin-bottom: 8px; background: #1c1c1c; border-radius: 8px; font-size: 1rem; }
+  #checklist li::before { content: "☐ "; opacity: 0.5; }
+  #readyLabel { font-size: 0.95rem; opacity: 0.6; min-height: 1.2em; margin-bottom: 4px; }
+  #countdown { font-size: clamp(3rem, 12vw, 5rem); font-variant-numeric: tabular-nums; margin: 0 0 16px; }
+  #countdown.hidden, #readyLabel.hidden { visibility: hidden; }
+  #countdown.ready { opacity: 0.5; }
+  .controls { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
+  button {
+    font: inherit; font-size: 1rem; padding: 12px 20px; border-radius: 8px;
+    border: 1px solid #444; background: #222; color: #f0f0f0; cursor: pointer;
+  }
+  button:hover { background: #2c2c2c; }
+  button.primary { background: #3a6df0; border-color: #3a6df0; }
+  button.primary:hover { background: #4a7bff; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  label.autoplay { display: flex; align-items: center; gap: 8px; justify-content: center; opacity: 0.8; font-size: 0.95rem; }
+  #restart { position: fixed; top: 12px; right: 12px; font-size: 0.85rem; padding: 8px 14px; }
+  #langSwitch { position: fixed; top: 12px; left: 12px; display: flex; gap: 4px; }
+  #langSwitch button { padding: 8px 12px; font-size: 0.85rem; }
+  #langSwitch button.active { background: #3a6df0; border-color: #3a6df0; }
+</style>
+</head>
+<body>
+<div id="langSwitch">
+  <button id="langFi" data-lang="fi">FI</button>
+  <button id="langEn" data-lang="en">EN</button>
+</div>
+<button id="restart"></button>
+<main>
+  <h1 id="phaseLabel"></h1>
+  <div id="progress"></div>
+  <h2 id="title"></h2>
+  <ul id="checklist" hidden></ul>
+  <p id="text"></p>
+  <div id="readyLabel" class="hidden"></div>
+  <div id="countdown" class="hidden">0</div>
+  <div class="controls">
+    <button id="prev"></button>
+    <button id="next" class="primary"></button>
+  </div>
+  <label class="autoplay">
+    <input type="checkbox" id="autoplay" />
+    <span id="autoplayLabel"></span>
+  </label>
+</main>
+
+<script src="steps.js"></script>
+<script>
+"use strict";
+
+const UI = {
+  fi: {
+    pageTitle: "Kuvausopas",
+    phaseLabel: "Kuvausopas",
+    progress: (i, n) => `Vaihe ${i} / ${n}`,
+    prev: "← Edellinen",
+    next: "Seuraava →",
+    done: "Valmis",
+    autoplay: "Automaattinen eteneminen (kun kuvaat yksin)",
+    restart: "↺ Aloita alusta",
+    restartTitle: "Aloita koko prosessi alusta",
+    restartConfirm: "Aloitetaanko koko kuvausopas alusta?",
+    ready: "Valmistaudu...",
+  },
+  en: {
+    pageTitle: "Recording guide",
+    phaseLabel: "Recording guide",
+    progress: (i, n) => `Step ${i} / ${n}`,
+    prev: "← Previous",
+    next: "Next →",
+    done: "Done",
+    autoplay: "Auto-advance (for recording alone)",
+    restart: "↺ Start over",
+    restartTitle: "Restart the whole process",
+    restartConfirm: "Restart the whole recording guide from the beginning?",
+    ready: "Get ready...",
+  },
+};
+
+const READY_SECONDS = 3;
+
+const els = {
+  phaseLabel: document.getElementById("phaseLabel"),
+  progress: document.getElementById("progress"),
+  title: document.getElementById("title"),
+  text: document.getElementById("text"),
+  checklist: document.getElementById("checklist"),
+  readyLabel: document.getElementById("readyLabel"),
+  countdown: document.getElementById("countdown"),
+  prev: document.getElementById("prev"),
+  next: document.getElementById("next"),
+  autoplay: document.getElementById("autoplay"),
+  autoplayLabel: document.getElementById("autoplayLabel"),
+  restart: document.getElementById("restart"),
+  langFi: document.getElementById("langFi"),
+  langEn: document.getElementById("langEn"),
+};
+
+let lang = localStorage.getItem("recorder.lang");
+if (!lang) lang = (navigator.language || "").startsWith("fi") ? "fi" : "en";
+if (!STEPS_I18N[lang]) lang = "en";
+let index = 0;
+let phase = "ready"; // "ready" (3s pre-roll) | "action" (the step's own countdown)
+let remaining = 0;
+let timer = null;
+let audioCtx = null;
+let wakeLock = null;
+
+function steps() { return STEPS_I18N[lang]; }
+function t() { return UI[lang]; }
+
+els.autoplay.checked = localStorage.getItem("recorder.autoplay") === "1";
+els.autoplay.addEventListener("change", () => {
+  localStorage.setItem("recorder.autoplay", els.autoplay.checked ? "1" : "0");
+});
+
+function setLang(newLang) {
+  if (newLang === lang) return;
+  lang = newLang;
+  localStorage.setItem("recorder.lang", lang);
+  applyStaticText();
+  showStep();
+}
+els.langFi.addEventListener("click", () => setLang("fi"));
+els.langEn.addEventListener("click", () => setLang("en"));
+
+function applyStaticText() {
+  document.title = t().pageTitle;
+  els.phaseLabel.textContent = t().phaseLabel;
+  els.autoplayLabel.textContent = t().autoplay;
+  els.restart.textContent = t().restart;
+  els.restart.title = t().restartTitle;
+  els.readyLabel.textContent = t().ready;
+  els.langFi.classList.toggle("active", lang === "fi");
+  els.langEn.classList.toggle("active", lang === "en");
+}
+
+function beep(freq) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.25);
+  } catch (e) {
+    // ponytail: best-effort audio cue, silently skip if the browser blocks it
+  }
+}
+
+async function requestWakeLock() {
+  try {
+    wakeLock = await navigator.wakeLock?.request("screen");
+  } catch (e) {
+    // ponytail: keeping the screen awake is a nicety, not required
+  }
+}
+
+function stopTimer() {
+  clearInterval(timer);
+  timer = null;
+}
+
+function showStep() {
+  stopTimer();
+  const step = steps()[index];
+  els.progress.textContent = t().progress(index + 1, steps().length);
+  els.title.textContent = step.title;
+  els.prev.textContent = t().prev;
+  els.prev.disabled = index === 0;
+  els.next.textContent = index === steps().length - 1 ? t().done : t().next;
+  els.next.disabled = index === steps().length - 1;
+
+  if (step.checklist) {
+    els.checklist.hidden = false;
+    els.checklist.innerHTML = step.checklist.map((item) => `<li>${item}</li>`).join("");
+    els.text.hidden = true;
+    els.readyLabel.classList.add("hidden");
+    els.countdown.classList.add("hidden");
+  } else {
+    els.checklist.hidden = true;
+    els.text.hidden = false;
+    els.text.textContent = step.text || "";
+    if (typeof step.seconds === "number") {
+      phase = "ready";
+      remaining = READY_SECONDS;
+      els.readyLabel.classList.remove("hidden");
+      els.countdown.classList.remove("hidden");
+      els.countdown.classList.add("ready");
+      els.countdown.textContent = remaining;
+      timer = setInterval(tick, 1000);
+    } else {
+      els.readyLabel.classList.add("hidden");
+      els.countdown.classList.add("hidden");
+    }
+  }
+
+  beep(880);
+}
+
+function tick() {
+  remaining -= 1;
+  els.countdown.textContent = Math.max(remaining, 0);
+  if (remaining <= 0) {
+    if (phase === "ready") {
+      phase = "action";
+      remaining = steps()[index].seconds;
+      els.readyLabel.classList.add("hidden");
+      els.countdown.classList.remove("ready");
+      els.countdown.textContent = remaining;
+      beep(1200);
+    } else {
+      stopTimer();
+      if (els.autoplay.checked && index < steps().length - 1) {
+        index += 1;
+        showStep();
+      }
+    }
+  }
+}
+
+function goTo(newIndex) {
+  index = Math.max(0, Math.min(steps().length - 1, newIndex));
+  showStep();
+}
+
+els.next.addEventListener("click", () => {
+  requestWakeLock();
+  if (index < steps().length - 1) goTo(index + 1);
+});
+els.prev.addEventListener("click", () => goTo(index - 1));
+els.restart.addEventListener("click", () => {
+  if (index === 0 || confirm(t().restartConfirm)) goTo(0);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") els.next.click();
+  if (e.key === "ArrowLeft") els.prev.click();
+});
+
+applyStaticText();
+showStep();
+</script>
+</body>
+</html>
